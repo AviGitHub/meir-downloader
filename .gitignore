@@ -1,8 +1,16 @@
-# Python
+# .NET
+bin/
+obj/
+*.exe
+*.pdb
+*.dll
+*.so
+*.dylib
+
+# Python (legacy)
 __pycache__/
 *.py[cod]
 *$py.class
-*.so
 .Python
 env/
 .venv/
@@ -11,23 +19,28 @@ venv/
 dist/
 build/
 
-# Virtual environment
-.env
-.venv
-
-# IDE
+# IDEs
 .vscode/
 .idea/
 *.swp
 *.swo
+.vs/
 
 # OS
 .DS_Store
 Thumbs.db
 
-# Project specific
-meir-downloader/
-*.json
+# Local settings
+appsettings.Development.json
+launchSettings.json
+
+# NuGet
+.nuget/
+packages/
+*.nupkg
+
+# Build artifacts
+*.log
 *.mp3
 *.bak
 run.sh
