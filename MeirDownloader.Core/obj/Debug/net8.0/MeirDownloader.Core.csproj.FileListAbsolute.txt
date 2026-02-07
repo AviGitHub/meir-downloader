@@ -1,0 +1,13 @@
+C:\Users\Avi\source\repos\meir-downloader\MeirDownloader.Core\bin\Debug\net8.0\MeirDownloader.Core.deps.json
+C:\Users\Avi\source\repos\meir-downloader\MeirDownloader.Core\bin\Debug\net8.0\MeirDownloader.Core.dll
+C:\Users\Avi\source\repos\meir-downloader\MeirDownloader.Core\bin\Debug\net8.0\MeirDownloader.Core.pdb
+C:\Users\Avi\source\repos\meir-downloader\MeirDownloader.Core\obj\Debug\net8.0\MeirDownloader.Core.csproj.AssemblyReference.cache
+C:\Users\Avi\source\repos\meir-downloader\MeirDownloader.Core\obj\Debug\net8.0\MeirDownloader.Core.GeneratedMSBuildEditorConfig.editorconfig
+C:\Users\Avi\source\repos\meir-downloader\MeirDownloader.Core\obj\Debug\net8.0\MeirDownloader.Core.AssemblyInfoInputs.cache
+C:\Users\Avi\source\repos\meir-downloader\MeirDownloader.Core\obj\Debug\net8.0\MeirDownloader.Core.AssemblyInfo.cs
+C:\Users\Avi\source\repos\meir-downloader\MeirDownloader.Core\obj\Debug\net8.0\MeirDownloader.Core.csproj.CoreCompileInputs.cache
+C:\Users\Avi\source\repos\meir-downloader\MeirDownloader.Core\obj\Debug\net8.0\MeirDownloader.Core.sourcelink.json
+C:\Users\Avi\source\repos\meir-downloader\MeirDownloader.Core\obj\Debug\net8.0\MeirDownloader.Core.dll
+C:\Users\Avi\source\repos\meir-downloader\MeirDownloader.Core\obj\Debug\net8.0\refint\MeirDownloader.Core.dll
+C:\Users\Avi\source\repos\meir-downloader\MeirDownloader.Core\obj\Debug\net8.0\MeirDownloader.Core.pdb
+C:\Users\Avi\source\repos\meir-downloader\MeirDownloader.Core\obj\Debug\net8.0\ref\MeirDownloader.Core.dll

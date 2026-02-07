@@ -1,0 +1,10 @@
+{
+  "version": 2,
+  "dgSpecHash": "7Mdz0SMyiAA=",
+  "success": true,
+  "projectFilePath": "C:\\Users\\Avi\\source\\repos\\meir-downloader\\MeirDownloader.Core\\MeirDownloader.Core.csproj",
+  "expectedPackageFiles": [
+    "C:\\Users\\Avi\\.nuget\\packages\\htmlagilitypack\\1.11.54\\htmlagilitypack.1.11.54.nupkg.sha512"
+  ],
+  "logs": []
+}
