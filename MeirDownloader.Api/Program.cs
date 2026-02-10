@@ -1,4 +1,5 @@
 using MeirDownloader.Core.Services;
+using Microsoft.Extensions.Hosting.WindowsServices;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -18,6 +19,9 @@ builder.Services.AddCors(options =>
 
 // Register services
 builder.Services.AddScoped<IMeirDownloaderService, MeirDownloaderService>();
+
+// Configure host to support running as a Windows Service
+builder.Host.UseWindowsService();
 
 var app = builder.Build();
 
