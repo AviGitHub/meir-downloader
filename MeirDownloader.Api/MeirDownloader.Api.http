@@ -1,6 +1,14 @@
-@MeirDownloader.Api_HostAddress = http://localhost:5099
+@MeirDownloader.Api_HostAddress = http://localhost:5000
 
-GET {{MeirDownloader.Api_HostAddress}}/weatherforecast/
+GET {{MeirDownloader.Api_HostAddress}}/api/rabbis
 Accept: application/json
 
 ###
+
+GET {{MeirDownloader.Api_HostAddress}}/api/series
+Accept: application/json
+
+###
+
+GET {{MeirDownloader.Api_HostAddress}}/api/lessons?page=1
+Accept: application/json

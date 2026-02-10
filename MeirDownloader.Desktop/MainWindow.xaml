@@ -4,7 +4,8 @@
         Title="מוריד שיעורים - Meir Downloader" Height="700" Width="1000"
         Background="#F5F5F5"
         FlowDirection="RightToLeft"
-        WindowStartupLocation="CenterScreen">
+        WindowStartupLocation="CenterScreen"
+        Icon="pack://application:,,,/icon.ico">
     <Grid>
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
@@ -51,42 +52,64 @@
                     </ListBox>
 
                     <Button Content="טען מחדש" Click="RefreshButton_Click" Background="#3498DB" Foreground="White" 
-                            FontWeight="Bold" Padding="10,8" Margin="0,20,0,0"/>
+                            FontWeight="Bold" Padding="10,8" Margin="0,20,0,0" Cursor="Hand"/>
                 </StackPanel>
             </Grid>
 
             <!-- Main Content Area -->
             <Grid Grid.Column="1" Background="White">
-                <StackPanel Margin="15">
-                    <TextBlock Text="שיעורים" FontSize="16" FontWeight="Bold" Foreground="#2C3E50" Margin="0,0,0,10"/>
-                    
-                    <DataGrid x:Name="LessonsGrid" AutoGenerateColumns="False" Background="White" 
-                             RowHeaderWidth="0" BorderThickness="0" Margin="0,0,0,15" Height="300">
-                        <DataGrid.Columns>
-                            <DataGridTextColumn Header="שם השיעור" Binding="{Binding Title}" Width="*"/>
-                            <DataGridTextColumn Header="רב" Binding="{Binding RabbiName}" Width="100"/>
-                            <DataGridTextColumn Header="תאריך" Binding="{Binding Date}" Width="100"/>
-                            <DataGridTemplateColumn Header="פעולה" Width="100">
-                                <DataGridTemplateColumn.CellTemplate>
-                                    <DataTemplate>
-                                        <Button Content="הורד" Click="DownloadButton_Click" Background="#27AE60" 
-                                               Foreground="White" Padding="8,4"/>
-                                    </DataTemplate>
-                                </DataGridTemplateColumn.CellTemplate>
-                            </DataGridTemplateColumn>
-                        </DataGrid.Columns>
-                    </DataGrid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="*"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
 
-                    <!-- Status Bar -->
-                    <Grid Background="#ECF0F1" Margin="0">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="300"/>
-                            <ColumnDefinition Width="*"/>
-                        </Grid.ColumnDefinitions>
-                        <ProgressBar x:Name="ProgressBar" Grid.Column="0" Height="20" Margin="10"/>
-                        <TextBlock x:Name="StatusText" Grid.Column="1" Text="מוכן" VerticalAlignment="Center" Foreground="#2C3E50" Margin="10"/>
-                    </Grid>
+                <!-- Title -->
+                <TextBlock Grid.Row="0" Text="שיעורים" FontSize="16" FontWeight="Bold" Foreground="#2C3E50" Margin="15,15,15,10"/>
+
+                <!-- DataGrid -->
+                <DataGrid Grid.Row="1" x:Name="LessonsGrid" AutoGenerateColumns="False" Background="White" 
+                         RowHeaderWidth="0" BorderThickness="0" Margin="15,0,15,10"
+                         IsReadOnly="True" SelectionMode="Single">
+                    <DataGrid.Columns>
+                        <DataGridTextColumn Header="שם השיעור" Binding="{Binding Title}" Width="*"/>
+                        <DataGridTextColumn Header="רב" Binding="{Binding RabbiName}" Width="100"/>
+                        <DataGridTextColumn Header="תאריך" Binding="{Binding Date}" Width="100"/>
+                        <DataGridTemplateColumn Header="פעולה" Width="100">
+                            <DataGridTemplateColumn.CellTemplate>
+                                <DataTemplate>
+                                    <Button Content="הורד" Click="DownloadButton_Click" Background="#27AE60" 
+                                           Foreground="White" Padding="8,4" Cursor="Hand"/>
+                                </DataTemplate>
+                            </DataGridTemplateColumn.CellTemplate>
+                        </DataGridTemplateColumn>
+                    </DataGrid.Columns>
+                </DataGrid>
+
+                <!-- Download Buttons Toolbar -->
+                <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="15,5,15,10" HorizontalAlignment="Right">
+                    <Button x:Name="DownloadSeriesButton" Content="הורד סדרה" Click="DownloadSeriesButton_Click" 
+                            Background="#27AE60" Foreground="White" FontWeight="Bold" Padding="15,8" Margin="0,0,10,0" Cursor="Hand"
+                            IsEnabled="False"/>
+                    <Button x:Name="DownloadAllButton" Content="הורד הכל" Click="DownloadAllButton_Click" 
+                            Background="#27AE60" Foreground="White" FontWeight="Bold" Padding="15,8" Margin="0,0,10,0" Cursor="Hand"
+                            IsEnabled="False"/>
+                    <Button x:Name="CancelDownloadButton" Content="בטל הורדה" Click="CancelDownloadButton_Click" 
+                            Background="#E74C3C" Foreground="White" FontWeight="Bold" Padding="15,8" Cursor="Hand"
+                            IsEnabled="False" Visibility="Collapsed"/>
                 </StackPanel>
+
+                <!-- Status Bar -->
+                <Grid Grid.Row="3" Background="#ECF0F1" Margin="0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="300"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <ProgressBar x:Name="ProgressBar" Grid.Column="0" Height="20" Margin="10" 
+                                 Foreground="#27AE60" Maximum="100" Value="0"/>
+                    <TextBlock x:Name="StatusText" Grid.Column="1" Text="מוכן" VerticalAlignment="Center" Foreground="#2C3E50" Margin="10"/>
+                </Grid>
             </Grid>
         </Grid>
 
