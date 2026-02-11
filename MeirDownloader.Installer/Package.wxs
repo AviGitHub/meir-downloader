@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Package Name="מוריד שיעורים - Meir Downloader"
+           Manufacturer="Machon Meir"
+           Version="2.0.0.0"
+           UpgradeCode="B3F7E2A1-4D5C-4E8F-9A1B-6C3D2E7F8A9B"
+           Compressed="yes"
+           InstallerVersion="500">
+
+    <MajorUpgrade DowngradeErrorMessage="A newer version of Meir Downloader is already installed." />
+    <MediaTemplate EmbedCab="yes" />
+
+    <Feature Id="Main" Title="Meir Downloader" Level="1">
+      <ComponentGroupRef Id="PublishOutput" />
+      <ComponentRef Id="DesktopShortcut" />
+      <ComponentRef Id="StartMenuShortcut" />
+    </Feature>
+
+    <!-- Install directory under Program Files -->
+    <StandardDirectory Id="ProgramFiles6432Folder">
+      <Directory Id="INSTALLFOLDER" Name="MeirDownloader" />
+    </StandardDirectory>
+
+    <!-- Desktop shortcut -->
+    <StandardDirectory Id="DesktopFolder">
+      <Component Id="DesktopShortcut" Guid="A1B2C3D4-E5F6-7890-ABCD-EF1234567890">
+        <Shortcut Id="DesktopShortcutFile"
+                  Name="מוריד שיעורים"
+                  Target="[INSTALLFOLDER]MeirDownloader.Desktop.exe"
+                  WorkingDirectory="INSTALLFOLDER"
+                  Icon="AppIcon" />
+        <RegistryValue Root="HKCU" Key="Software\MeirDownloader" Name="DesktopShortcut" Type="integer" Value="1" KeyPath="yes" />
+      </Component>
+    </StandardDirectory>
+
+    <!-- Start menu shortcut -->
+    <StandardDirectory Id="ProgramMenuFolder">
+      <Directory Id="ProgramMenuDir" Name="מוריד שיעורים">
+        <Component Id="StartMenuShortcut" Guid="D4E5F6A7-B8C9-0123-4567-89ABCDEF0123">
+          <Shortcut Id="StartMenuShortcutFile"
+                    Name="מוריד שיעורים"
+                    Target="[INSTALLFOLDER]MeirDownloader.Desktop.exe"
+                    WorkingDirectory="INSTALLFOLDER"
+                    Icon="AppIcon" />
+          <RemoveFolder Id="RemoveProgramMenuDir" On="uninstall" />
+          <RegistryValue Root="HKCU" Key="Software\MeirDownloader" Name="StartMenuShortcut" Type="integer" Value="1" KeyPath="yes" />
+        </Component>
+      </Directory>
+    </StandardDirectory>
+
+    <Icon Id="AppIcon" SourceFile="..\icon.ico" />
+    <Property Id="ARPPRODUCTICON" Value="AppIcon" />
+  </Package>
+</Wix>

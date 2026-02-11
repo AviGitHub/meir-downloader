@@ -20,6 +20,7 @@ Desktop.ini
 
 ## Published output
 publish_api/
+publish-desktop/
 
 ## Misc
 dotnet-install.ps1
