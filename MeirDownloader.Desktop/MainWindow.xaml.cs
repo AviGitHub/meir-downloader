@@ -7,21 +7,33 @@ using System.Windows;
 using System.Windows.Controls;
 using MeirDownloader.Core.Models;
 using MeirDownloader.Core.Services;
+using MeirDownloader.Desktop.Services;
+using MeirDownloader.Desktop.ViewModels;
 
 namespace MeirDownloader.Desktop;
 
 public partial class MainWindow : Window
 {
     private readonly IMeirDownloaderService _downloaderService;
+    private readonly DownloadManager _downloadManager;
     private string _downloadPath;
-    private CancellationTokenSource? _downloadCts;
+    private CancellationTokenSource? _loadingCts;
     private bool _isDownloading;
+    private List<LessonViewModel>? _currentLessons;
 
     public MainWindow()
     {
         InitializeComponent();
         _downloaderService = new MeirDownloaderService();
-        _downloadPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "מוריד שיעורים");
+        _downloadPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyMusic), "מוריד שיעורים");
+        _downloadManager = new DownloadManager(_downloaderService, 4);
+
+        _downloadManager.OverallProgressChanged += (completed, total) =>
+        {
+            Dispatcher.InvokeAsync(() => UpdateOverallProgress(completed, total));
+        };
+
+        DownloadPathText.Text = $"תיקיית הורדה: {_downloadPath}";
 
         LoadRabbis();
     }
@@ -30,7 +42,9 @@ public partial class MainWindow : Window
     {
         try
         {
+            RabbiLoadingBar.Visibility = Visibility.Visible;
             StatusText.Text = "טוען רבנים...";
+
             var rabbis = await _downloaderService.GetRabbisAsync();
             RabbiListBox.ItemsSource = rabbis;
             StatusText.Text = $"נטענו {rabbis.Count} רבנים";
@@ -40,6 +54,10 @@ public partial class MainWindow : Window
             StatusText.Text = $"שגיאה: {ex.Message}";
             MessageBox.Show($"Failed to load rabbis: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
         }
+        finally
+        {
+            RabbiLoadingBar.Visibility = Visibility.Collapsed;
+        }
     }
 
     private async void RabbiListBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -48,18 +66,25 @@ public partial class MainWindow : Window
         {
             try
             {
-                StatusText.Text = "טוען סדרות...";
+                SeriesLoadingBar.Visibility = Visibility.Visible;
+                StatusText.Text = $"טוען סדרות עבור {rabbi.Name}...";
                 SeriesListBox.ItemsSource = null;
                 LessonsGrid.ItemsSource = null;
+                _currentLessons = null;
                 UpdateDownloadButtonStates();
 
                 var series = await _downloaderService.GetSeriesAsync(rabbi.Id);
-                SeriesListBox.ItemsSource = series;
-                StatusText.Text = $"נטענו {series.Count} סדרות";
+                // Filter out series with 0 lessons
+                SeriesListBox.ItemsSource = series.Where(s => s.Count > 0).ToList();
+                StatusText.Text = $"נטענו {series.Count} סדרות עבור {rabbi.Name}";
             }
             catch (Exception ex)
             {
                 StatusText.Text = $"שגיאה: {ex.Message}";
+            }
+            finally
+            {
+                SeriesLoadingBar.Visibility = Visibility.Collapsed;
             }
         }
     }
@@ -70,23 +95,51 @@ public partial class MainWindow : Window
         {
             try
             {
-                StatusText.Text = "טוען שיעורים...";
-                var lessons = await _downloaderService.GetLessonsAsync(rabbi.Id, series.Id);
+                LessonsLoadingBar.Visibility = Visibility.Visible;
+                StatusText.Text = "טוען את כל השיעורים...";
+                LessonsGrid.ItemsSource = null;
+                _currentLessons = null;
 
-                // Resolve RabbiName and SeriesName from the selected items
+                // Cancel any previous loading operation
+                _loadingCts?.Cancel();
+                _loadingCts = new CancellationTokenSource();
+
+                // Fetch ALL lessons (all pages) sorted by date ascending
+                var lessons = await _downloaderService.GetAllLessonsAsync(rabbi.Id, series.Id, _loadingCts.Token);
+
+                // Set rabbi and series names
                 foreach (var lesson in lessons)
                 {
                     lesson.RabbiName = rabbi.Name;
                     lesson.SeriesName = series.Name;
                 }
 
-                LessonsGrid.ItemsSource = lessons;
-                StatusText.Text = $"נטענו {lessons.Count} שיעורים";
+                // Create numbered view models
+                _currentLessons = lessons
+                    .Select((lesson, index) => new LessonViewModel(lesson, index + 1))
+                    .ToList();
+
+                // Check which lessons are already downloaded
+                foreach (var lessonVm in _currentLessons)
+                {
+                    lessonVm.CheckIfAlreadyDownloaded(_downloadPath);
+                }
+
+                LessonsGrid.ItemsSource = _currentLessons;
+                StatusText.Text = $"נטענו {_currentLessons.Count} שיעורים";
                 UpdateDownloadButtonStates();
+            }
+            catch (OperationCanceledException)
+            {
+                // Loading was cancelled (user selected a different series)
             }
             catch (Exception ex)
             {
                 StatusText.Text = $"שגיאה: {ex.Message}";
+            }
+            finally
+            {
+                LessonsLoadingBar.Visibility = Visibility.Collapsed;
             }
         }
     }
@@ -96,13 +149,14 @@ public partial class MainWindow : Window
         RabbiListBox.ItemsSource = null;
         SeriesListBox.ItemsSource = null;
         LessonsGrid.ItemsSource = null;
+        _currentLessons = null;
         UpdateDownloadButtonStates();
         LoadRabbis();
     }
 
     private async void DownloadButton_Click(object sender, RoutedEventArgs e)
     {
-        if (sender is Button button && button.DataContext is Lesson lesson)
+        if (sender is Button button && button.DataContext is LessonViewModel lessonVm)
         {
             if (_isDownloading)
             {
@@ -114,36 +168,22 @@ public partial class MainWindow : Window
             try
             {
                 SetDownloadingState(true);
-                _downloadCts = new CancellationTokenSource();
 
-                var progress = new Progress<DownloadProgress>(p =>
-                {
-                    ProgressBar.Value = p.ProgressPercentage;
-                    StatusText.Text = $"מוריד: {p.LessonTitle} ({p.ProgressPercentage}%)";
-                });
+                // Download just this single lesson using the download manager
+                var singleList = new List<LessonViewModel> { lessonVm };
+                await _downloadManager.DownloadAllAsync(singleList, _downloadPath);
 
-                StatusText.Text = $"מוריד: {lesson.Title}...";
-                var filePath = await _downloaderService.DownloadLessonAsync(lesson, _downloadPath, progress, _downloadCts.Token);
-
-                ProgressBar.Value = 100;
-                StatusText.Text = $"הורדה הושלמה: {Path.GetFileName(filePath)}";
-            }
-            catch (OperationCanceledException)
-            {
-                StatusText.Text = "ההורדה בוטלה";
-                ProgressBar.Value = 0;
+                StatusText.Text = lessonVm.Status == DownloadStatus.Completed
+                    ? $"הורדה הושלמה: {lessonVm.Title}"
+                    : $"הורדה נכשלה: {lessonVm.Title}";
             }
             catch (Exception ex)
             {
                 StatusText.Text = $"שגיאה בהורדה: {ex.Message}";
-                ProgressBar.Value = 0;
-                MessageBox.Show($"שגיאה בהורדה: {ex.Message}", "שגיאה", MessageBoxButton.OK, MessageBoxImage.Error);
             }
             finally
             {
                 SetDownloadingState(false);
-                _downloadCts?.Dispose();
-                _downloadCts = null;
             }
         }
     }
@@ -166,56 +206,67 @@ public partial class MainWindow : Window
         try
         {
             SetDownloadingState(true);
-            _downloadCts = new CancellationTokenSource();
-
             StatusText.Text = "טוען את כל השיעורים בסדרה...";
-            var allLessons = await _downloaderService.GetAllLessonsAsync(rabbi.Id, series.Id, _downloadCts.Token);
 
-            // Set rabbi and series names
-            foreach (var lesson in allLessons)
+            // If we already have lessons loaded, use them; otherwise fetch
+            if (_currentLessons == null || _currentLessons.Count == 0)
             {
-                lesson.RabbiName = rabbi.Name;
-                lesson.SeriesName = series.Name;
+                _loadingCts?.Cancel();
+                _loadingCts = new CancellationTokenSource();
+
+                var allLessons = await _downloaderService.GetAllLessonsAsync(rabbi.Id, series.Id, _loadingCts.Token);
+
+                foreach (var lesson in allLessons)
+                {
+                    lesson.RabbiName = rabbi.Name;
+                    lesson.SeriesName = series.Name;
+                }
+
+                _currentLessons = allLessons
+                    .Select((lesson, index) => new LessonViewModel(lesson, index + 1))
+                    .ToList();
+
+                LessonsGrid.ItemsSource = _currentLessons;
             }
 
-            if (allLessons.Count == 0)
+            if (_currentLessons.Count == 0)
             {
                 StatusText.Text = "לא נמצאו שיעורים בסדרה זו";
                 return;
             }
 
-            StatusText.Text = $"מוריד {allLessons.Count} שיעורים מסדרה: {series.Name}";
-            await DownloadLessonsWithNumbering(allLessons, _downloadCts.Token);
+            StatusText.Text = $"מוריד {_currentLessons.Count} שיעורים מסדרה: {series.Name}";
+            OverallProgressBar.Value = 0;
+            OverallProgressText.Text = "";
+
+            await _downloadManager.DownloadAllAsync(_currentLessons, _downloadPath);
+
+            var completed = _currentLessons.Count(l => l.Status == DownloadStatus.Completed);
+            var skipped = _currentLessons.Count(l => l.Status == DownloadStatus.Skipped);
+            var errors = _currentLessons.Count(l => l.Status == DownloadStatus.Error);
+
+            StatusText.Text = $"הורדה הושלמה: {completed} הורדו, {skipped} כבר קיימים, {errors} שגיאות";
         }
         catch (OperationCanceledException)
         {
             StatusText.Text = "ההורדה בוטלה";
-            ProgressBar.Value = 0;
+            OverallProgressBar.Value = 0;
         }
         catch (Exception ex)
         {
             StatusText.Text = $"שגיאה בהורדה: {ex.Message}";
-            ProgressBar.Value = 0;
+            OverallProgressBar.Value = 0;
             MessageBox.Show($"שגיאה בהורדה: {ex.Message}", "שגיאה", MessageBoxButton.OK, MessageBoxImage.Error);
         }
         finally
         {
             SetDownloadingState(false);
-            _downloadCts?.Dispose();
-            _downloadCts = null;
         }
     }
 
     private async void DownloadAllButton_Click(object sender, RoutedEventArgs e)
     {
-        if (LessonsGrid.ItemsSource is not IEnumerable<Lesson> lessons)
-        {
-            MessageBox.Show("אין שיעורים להורדה.", "אין נתונים", MessageBoxButton.OK, MessageBoxImage.Warning);
-            return;
-        }
-
-        var lessonList = lessons.ToList();
-        if (lessonList.Count == 0)
+        if (_currentLessons == null || _currentLessons.Count == 0)
         {
             MessageBox.Show("אין שיעורים להורדה.", "אין נתונים", MessageBoxButton.OK, MessageBoxImage.Warning);
             return;
@@ -231,86 +282,69 @@ public partial class MainWindow : Window
         try
         {
             SetDownloadingState(true);
-            _downloadCts = new CancellationTokenSource();
+            StatusText.Text = $"מוריד {_currentLessons.Count} שיעורים...";
+            OverallProgressBar.Value = 0;
+            OverallProgressText.Text = "";
 
-            StatusText.Text = $"מוריד {lessonList.Count} שיעורים...";
-            await DownloadLessonsWithNumbering(lessonList, _downloadCts.Token);
+            await _downloadManager.DownloadAllAsync(_currentLessons, _downloadPath);
+
+            var completed = _currentLessons.Count(l => l.Status == DownloadStatus.Completed);
+            var skipped = _currentLessons.Count(l => l.Status == DownloadStatus.Skipped);
+            var errors = _currentLessons.Count(l => l.Status == DownloadStatus.Error);
+
+            StatusText.Text = $"הורדה הושלמה: {completed} הורדו, {skipped} כבר קיימים, {errors} שגיאות";
         }
         catch (OperationCanceledException)
         {
             StatusText.Text = "ההורדה בוטלה";
-            ProgressBar.Value = 0;
+            OverallProgressBar.Value = 0;
         }
         catch (Exception ex)
         {
             StatusText.Text = $"שגיאה בהורדה: {ex.Message}";
-            ProgressBar.Value = 0;
+            OverallProgressBar.Value = 0;
             MessageBox.Show($"שגיאה בהורדה: {ex.Message}", "שגיאה", MessageBoxButton.OK, MessageBoxImage.Error);
         }
         finally
         {
             SetDownloadingState(false);
-            _downloadCts?.Dispose();
-            _downloadCts = null;
         }
     }
 
     private void CancelDownloadButton_Click(object sender, RoutedEventArgs e)
     {
-        if (_downloadCts != null && !_downloadCts.IsCancellationRequested)
-        {
-            _downloadCts.Cancel();
-            StatusText.Text = "מבטל הורדה...";
-        }
+        _downloadManager.Cancel();
+        StatusText.Text = "מבטל הורדה...";
     }
 
-    private async Task DownloadLessonsWithNumbering(List<Lesson> lessons, CancellationToken ct)
+    private void ChooseFolderButton_Click(object sender, RoutedEventArgs e)
     {
-        int totalLessons = lessons.Count;
-        int completedLessons = 0;
-        int failedLessons = 0;
-
-        for (int i = 0; i < totalLessons; i++)
+        var dialog = new Microsoft.Win32.OpenFolderDialog
         {
-            ct.ThrowIfCancellationRequested();
+            Title = "בחר תיקייה להורדת שיעורים",
+            InitialDirectory = _downloadPath
+        };
 
-            var lesson = lessons[i];
-            int index = i + 1;
-
-            var progress = new Progress<DownloadProgress>(p =>
-            {
-                // Calculate overall progress: completed lessons + current lesson progress
-                double overallProgress = ((double)completedLessons / totalLessons * 100) +
-                                         ((double)p.ProgressPercentage / totalLessons);
-                ProgressBar.Value = Math.Min(overallProgress, 100);
-                StatusText.Text = $"מוריד ({index}/{totalLessons}): {p.LessonTitle} ({p.ProgressPercentage}%)";
-            });
-
-            try
-            {
-                await _downloaderService.DownloadLessonAsync(lesson, _downloadPath, index, progress, ct);
-                completedLessons++;
-            }
-            catch (OperationCanceledException)
-            {
-                throw;
-            }
-            catch (Exception ex)
-            {
-                failedLessons++;
-                System.Diagnostics.Debug.WriteLine($"Failed to download lesson {index}: {ex.Message}");
-                // Continue with next lesson
-            }
-        }
-
-        ProgressBar.Value = 100;
-        if (failedLessons > 0)
+        if (dialog.ShowDialog() == true)
         {
-            StatusText.Text = $"הורדה הושלמה: {completedLessons} הצליחו, {failedLessons} נכשלו מתוך {totalLessons}";
-        }
-        else
-        {
-            StatusText.Text = $"הורדה הושלמה: {completedLessons} שיעורים הורדו בהצלחה";
+            _downloadPath = dialog.FolderName;
+            DownloadPathText.Text = $"תיקיית הורדה: {_downloadPath}";
+
+            // Re-check skip status for currently displayed lessons
+            if (_currentLessons != null)
+            {
+                foreach (var lessonVm in _currentLessons)
+                {
+                    // Reset non-completed lessons and re-check
+                    if (lessonVm.Status != DownloadStatus.Completed)
+                    {
+                        lessonVm.Status = DownloadStatus.Ready;
+                        lessonVm.ProgressPercentage = 0;
+                        lessonVm.StatusText = "מוכן";
+                        lessonVm.CheckIfAlreadyDownloaded(_downloadPath);
+                    }
+                }
+            }
         }
     }
 
@@ -319,6 +353,7 @@ public partial class MainWindow : Window
         _isDownloading = isDownloading;
         CancelDownloadButton.IsEnabled = isDownloading;
         CancelDownloadButton.Visibility = isDownloading ? Visibility.Visible : Visibility.Collapsed;
+        ChooseFolderButton.IsEnabled = !isDownloading;
 
         if (!isDownloading)
         {
@@ -333,10 +368,19 @@ public partial class MainWindow : Window
 
     private void UpdateDownloadButtonStates()
     {
-        bool hasLessons = LessonsGrid.ItemsSource is IEnumerable<Lesson> lessons && lessons.Any();
+        bool hasLessons = _currentLessons != null && _currentLessons.Count > 0;
         bool hasSeriesSelected = SeriesListBox.SelectedItem is Series && RabbiListBox.SelectedItem is Rabbi;
 
         DownloadSeriesButton.IsEnabled = hasSeriesSelected && !_isDownloading;
         DownloadAllButton.IsEnabled = hasLessons && !_isDownloading;
+    }
+
+    private void UpdateOverallProgress(int completed, int total)
+    {
+        if (total > 0)
+        {
+            OverallProgressBar.Value = (double)completed / total * 100;
+            OverallProgressText.Text = $"הורדו {completed} מתוך {total} שיעורים";
+        }
     }
 }

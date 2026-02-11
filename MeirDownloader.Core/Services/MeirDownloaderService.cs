@@ -70,6 +70,144 @@ public class MeirDownloaderService : IMeirDownloaderService
 
     public async Task<List<Series>> GetSeriesAsync(string? rabbiId = null, CancellationToken ct = default)
     {
+        if (!string.IsNullOrEmpty(rabbiId))
+        {
+            return await GetSeriesForRabbiAsync(rabbiId, ct);
+        }
+
+        return await GetAllSeriesAsync(ct);
+    }
+
+    /// <summary>
+    /// Two-step approach: fetch all lessons for a rabbi to discover series IDs,
+    /// then fetch series details for those IDs.
+    /// </summary>
+    private async Task<List<Series>> GetSeriesForRabbiAsync(string rabbiId, CancellationToken ct)
+    {
+        var seriesLessonCount = new Dictionary<int, int>();
+
+        try
+        {
+            // Step 1: Paginate through all lessons for this rabbi to collect series IDs and counts
+            int page = 1;
+            int totalPages = 1;
+
+            while (page <= totalPages)
+            {
+                ct.ThrowIfCancellationRequested();
+
+                var url = $"{BaseApiUrl}/shiurim?rabbis={rabbiId}&per_page=100&page={page}&_fields=shiurim-series";
+                var response = await _httpClient.GetAsync(url, ct);
+
+                if (!response.IsSuccessStatusCode)
+                {
+                    System.Diagnostics.Debug.WriteLine($"Failed to fetch lessons for rabbi {rabbiId} page {page}: HTTP {(int)response.StatusCode}");
+                    break;
+                }
+
+                if (page == 1 && response.Headers.TryGetValues("X-WP-TotalPages", out var totalPagesValues))
+                {
+                    int.TryParse(totalPagesValues.FirstOrDefault(), out totalPages);
+                }
+
+                var json = await response.Content.ReadAsStringAsync(ct);
+                var items = JsonSerializer.Deserialize<JsonElement>(json);
+
+                if (items.ValueKind == JsonValueKind.Array)
+                {
+                    foreach (var item in items.EnumerateArray())
+                    {
+                        if (item.TryGetProperty("shiurim-series", out var seriesArray) && seriesArray.ValueKind == JsonValueKind.Array)
+                        {
+                            foreach (var seriesId in seriesArray.EnumerateArray())
+                            {
+                                var id = seriesId.GetInt32();
+                                if (seriesLessonCount.ContainsKey(id))
+                                    seriesLessonCount[id]++;
+                                else
+                                    seriesLessonCount[id] = 1;
+                            }
+                        }
+                    }
+                }
+
+                page++;
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"Error fetching lessons for rabbi {rabbiId}: {ex.Message}");
+        }
+
+        if (seriesLessonCount.Count == 0)
+            return new List<Series>();
+
+        // Step 2: Fetch series details for the discovered IDs (in chunks of 100)
+        var allSeries = new List<Series>();
+        var seriesIds = seriesLessonCount.Keys.ToList();
+
+        try
+        {
+            for (int i = 0; i < seriesIds.Count; i += 100)
+            {
+                ct.ThrowIfCancellationRequested();
+
+                var chunk = seriesIds.Skip(i).Take(100);
+                var includeParam = string.Join(",", chunk);
+                var url = $"{BaseApiUrl}/shiurim-series?include={includeParam}&per_page=100&_fields=id,name,count";
+                var response = await _httpClient.GetAsync(url, ct);
+
+                if (!response.IsSuccessStatusCode)
+                {
+                    System.Diagnostics.Debug.WriteLine($"Failed to fetch series details: HTTP {(int)response.StatusCode}");
+                    continue;
+                }
+
+                var json = await response.Content.ReadAsStringAsync(ct);
+                var items = JsonSerializer.Deserialize<JsonElement>(json);
+
+                if (items.ValueKind == JsonValueKind.Array)
+                {
+                    foreach (var item in items.EnumerateArray())
+                    {
+                        var id = item.GetProperty("id").GetInt32();
+                        var rabbiSpecificCount = seriesLessonCount.ContainsKey(id) ? seriesLessonCount[id] : 0;
+
+                        if (rabbiSpecificCount > 0)
+                        {
+                            allSeries.Add(new Series
+                            {
+                                Id = id.ToString(),
+                                Name = WebUtility.HtmlDecode(item.GetProperty("name").GetString() ?? string.Empty),
+                                Count = rabbiSpecificCount
+                            });
+                        }
+                    }
+                }
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"Error fetching series details: {ex.Message}");
+        }
+
+        // Sort by rabbi-specific lesson count descending
+        return allSeries.OrderByDescending(s => s.Count).ToList();
+    }
+
+    /// <summary>
+    /// Fetch all series with hide_empty=true to exclude 0-count series.
+    /// </summary>
+    private async Task<List<Series>> GetAllSeriesAsync(CancellationToken ct)
+    {
         var allSeries = new List<Series>();
 
         try
@@ -79,7 +217,7 @@ public class MeirDownloaderService : IMeirDownloaderService
 
             while (page <= totalPages)
             {
-                var url = $"{BaseApiUrl}/shiurim-series?per_page=100&page={page}&orderby=count&order=desc&_fields=id,name,slug,count";
+                var url = $"{BaseApiUrl}/shiurim-series?per_page=100&page={page}&hide_empty=true&orderby=count&order=desc&_fields=id,name,count";
                 var response = await _httpClient.GetAsync(url, ct);
 
                 if (!response.IsSuccessStatusCode)
