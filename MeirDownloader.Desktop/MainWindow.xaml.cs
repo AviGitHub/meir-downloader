@@ -395,53 +395,6 @@ public partial class MainWindow : Window
         }
     }
 
-    private async void DownloadAllButton_Click(object sender, RoutedEventArgs e)
-    {
-        if (_currentLessons == null || _currentLessons.Count == 0)
-        {
-            MessageBox.Show("אין שיעורים להורדה.", "אין נתונים", MessageBoxButton.OK, MessageBoxImage.Warning);
-            return;
-        }
-
-        if (_isDownloading)
-        {
-            MessageBox.Show("הורדה כבר מתבצעת. אנא המתן או בטל את ההורדה הנוכחית.", "הורדה פעילה",
-                MessageBoxButton.OK, MessageBoxImage.Warning);
-            return;
-        }
-
-        try
-        {
-            SetDownloadingState(true);
-            StatusText.Text = $"מוריד {_currentLessons.Count} שיעורים...";
-            OverallProgressBar.Value = 0;
-            OverallProgressText.Text = "";
-
-            await _downloadManager.DownloadAllAsync(_currentLessons, _downloadPath);
-
-            var completed = _currentLessons.Count(l => l.Status == DownloadStatus.Completed);
-            var skipped = _currentLessons.Count(l => l.Status == DownloadStatus.Skipped);
-            var errors = _currentLessons.Count(l => l.Status == DownloadStatus.Error);
-
-            StatusText.Text = $"הורדה הושלמה: {completed} הורדו, {skipped} כבר קיימים, {errors} שגיאות";
-        }
-        catch (OperationCanceledException)
-        {
-            StatusText.Text = "ההורדה בוטלה";
-            OverallProgressBar.Value = 0;
-        }
-        catch (Exception ex)
-        {
-            StatusText.Text = $"שגיאה בהורדה: {ex.Message}";
-            OverallProgressBar.Value = 0;
-            MessageBox.Show($"שגיאה בהורדה: {ex.Message}", "שגיאה", MessageBoxButton.OK, MessageBoxImage.Error);
-        }
-        finally
-        {
-            SetDownloadingState(false);
-        }
-    }
-
     private void CancelDownloadButton_Click(object sender, RoutedEventArgs e)
     {
         _downloadManager.Cancel();
@@ -493,17 +446,14 @@ public partial class MainWindow : Window
         else
         {
             DownloadSeriesButton.IsEnabled = false;
-            DownloadAllButton.IsEnabled = false;
         }
     }
 
     private void UpdateDownloadButtonStates()
     {
-        bool hasLessons = _currentLessons != null && _currentLessons.Count > 0;
         bool hasSeriesSelected = SeriesListBox.SelectedItem is Series && RabbiListBox.SelectedItem is RabbiViewModel;
 
         DownloadSeriesButton.IsEnabled = hasSeriesSelected && !_isDownloading;
-        DownloadAllButton.IsEnabled = hasLessons && !_isDownloading;
 
         // Show "Open Directory" button when a series is selected
         var selectedRabbi = RabbiListBox.SelectedItem as RabbiViewModel;
