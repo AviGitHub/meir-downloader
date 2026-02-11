@@ -2,7 +2,7 @@
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
   <Package Name="מוריד שיעורים - Meir Downloader"
            Manufacturer="Machon Meir"
-           Version="2.0.0.0"
+           Version="1.0.0.0"
            UpgradeCode="B3F7E2A1-4D5C-4E8F-9A1B-6C3D2E7F8A9B"
            Compressed="yes"
            InstallerVersion="500">
