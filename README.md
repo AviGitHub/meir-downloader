@@ -1,288 +1,105 @@
-# Meir Downloader - מוריד שיעורים - .NET Core Edition
+# מוריד שיעורים - Meir Downloader
 
-## ✅ Project Status: REFACTORED & TESTED
+Download Torah lessons from [Machon Meir](https://meirtv.com) — browse rabbis, series, and download audio lessons with ease.
 
-Successfully migrated from Python/Flask + Electron to **ASP.NET Core + WPF**
+## ✨ Features
 
-### 🎯 What Changed
+- **Browse 700+ Rabbis** — sorted by lesson count with incremental loading
+- **1,000+ Series** — filtered by selected rabbi, sorted alphabetically
+- **47,000+ Lessons** — with parallel downloads (up to 4 simultaneous)
+- **Per-lesson Progress Bars** — color-coded status (downloading, completed, error, skipped)
+- **Smart Skip** — already-downloaded lessons are detected and skipped automatically
+- **Folder Picker** — choose your download directory (default: Music/מוריד שיעורים)
+- **Organized Downloads** — `Rabbi Name/Series Name/001-Lesson Title.mp3`
+- **Israeli Date Format** — dates displayed as dd.MM.yyyy
+- **Self-contained Installer** — no .NET runtime required
+- **REST API** — ASP.NET Core Web API with Swagger documentation
 
-| Aspect | Before | After |
-|--------|--------|-------|
-| **Backend** | Python Flask | ASP.NET Core 8.0 |
-| **Desktop UI** | Electron/React | WPF (Windows native) |
-| **Database** | In-memory | Ready for SQLite |
-| **API** | Flask REST | Swagger-ready REST |
-| **Performance** | Interpreted | Compiled (JIT) |
-| **Type Safety** | Dynamic | Strongly typed |
-| **Distribution** | .exe + Python | Single .exe executable |
+## 📥 Download
 
----
+Download the latest installer from [GitHub Releases](https://github.com/AviGitHub/meir-downloader/releases/latest).
+
+### System Requirements
+- Windows 10/11 (x64)
+- Internet connection
 
 ## 🏗️ Architecture
 
 ```
-Solution: MeirDownloader
-├── MeirDownloader.Core (Class Library)
-│   ├── Models/
-│   │   ├── Rabbi.cs
-│   │   ├── Series.cs
-│   │   ├── Lesson.cs
-│   │   └── DownloadProgress.cs
-│   └── Services/
-│       ├── IMeirDownloaderService.cs
-│       └── MeirDownloaderService.cs
-│
-├── MeirDownloader.Api (ASP.NET Core Web API)
-│   ├── Controllers/
-│   │   ├── RabbisController.cs
-│   │   ├── SeriesController.cs
-│   │   └── LessonsController.cs
-│   └── Program.cs
-│
-└── MeirDownloader.Desktop (WPF Application)
-    ├── MainWindow.xaml (Hebrew RTL UI)
-    ├── MainWindow.xaml.cs
-    └── App.xaml
+MeirDownloader.sln
+├── MeirDownloader.Core        # Shared models & services (.NET 9)
+│   ├── Models/                # Rabbi, Series, Lesson, DownloadProgress
+│   └── Services/              # MeirDownloaderService (WordPress REST API)
+├── MeirDownloader.Desktop     # WPF Desktop app (.NET 9, Windows)
+│   ├── ViewModels/            # LessonViewModel with download state
+│   ├── Services/              # DownloadManager (parallel downloads)
+│   └── Converters/            # XAML value converters
+├── MeirDownloader.Api         # ASP.NET Core Web API (.NET 9)
+│   └── Controllers/           # Rabbis, Series, Lessons endpoints
+└── MeirDownloader.Installer   # WiX v6 MSI installer
 ```
-
----
 
 ## 🚀 Quick Start
 
+### Run the Desktop App
+```bash
+dotnet run --project MeirDownloader.Desktop
+```
+
+### Run the API
+```bash
+dotnet run --project MeirDownloader.Api
+# Swagger UI: http://localhost:5000/swagger
+```
+
+### API Endpoints
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/rabbis` | List all rabbis |
+| GET | `/api/series?rabbiId={id}` | List series (optionally filtered) |
+| GET | `/api/lessons?rabbiId={id}&seriesId={id}&page=1` | List lessons with pagination |
+
+## 🔨 Build
+
 ### Prerequisites
-- .NET 8.0 SDK or later
-- Windows 10/11 (for WPF)
+- [.NET 9 SDK](https://dotnet.microsoft.com/download/dotnet/9.0)
+- [WiX Toolset](https://wixtoolset.org/) (for installer only)
 
-### Run the API Server
+### Build Solution
+```bash
+dotnet build MeirDownloader.sln
+```
 
+### Build Installer (MSI)
 ```powershell
-cd MeirDownloader.Api
-dotnet run
-# API listens on http://localhost:5099
+powershell -File build-installer.ps1
 ```
 
-### Run the Desktop Application
-
+### Test API
 ```powershell
-cd MeirDownloader.Desktop
-dotnet run
+powershell -File test-api.ps1
 ```
 
-The application will:
-1. ✅ Load list of rabbis from meirtv.com
-2. ✅ Display series for selected rabbi
-3. ✅ Show lessons in a data grid
-4. ✅ Support filtering and pagination
-
----
-
-## 📡 API Endpoints
-
-All endpoints accessible at `http://localhost:5099/api`
-
-### 1. GET /api/rabbis
-Returns list of available rabbis
-
-**Response:**
-```json
-[
-  {
-    "id": "rabbi-id",
-    "name": "Rabbi Name",
-    "count": 42
-  }
-]
+## 📁 Download Directory Structure
+```
+Music/מוריד שיעורים/
+  └── הרב דב ביגון/
+      └── ספר אורות הקודש/
+          ├── 001-הקדמת הרב הנזיר.mp3
+          ├── 002-הקדמה כללית לספר.mp3
+          └── ...
 ```
 
-### 2. GET /api/series
-Returns series (optionally filtered by rabbi)
+## 🛠️ Tech Stack
 
-**Parameters:**
-- `rabbiId` (optional)
+- **.NET 9** — C# 13, latest runtime
+- **WPF** — Windows Presentation Foundation (Desktop UI)
+- **ASP.NET Core** — Web API with Swagger/OpenAPI
+- **WordPress REST API** — Data source (meirtv.com)
+- **WiX v6** — Windows Installer (MSI)
+- **System.Text.Json** — JSON serialization
+- **IAsyncEnumerable** — Streaming/incremental data loading
 
-**Response:**
-```json
-[
-  {
-    "id": "series-id",
-    "name": "Series Name",
-    "count": 10
-  }
-]
-```
+## 📄 License
 
-### 3. GET /api/lessons
-Returns lessons with pagination and filters
-
-**Parameters:**
-- `rabbiId` (optional)
-- `seriesId` (optional)
-- `page` (default: 1)
-
-**Response:**
-```json
-[
-  {
-    "id": "lesson-id",
-    "title": "Lesson Title",
-    "rabbiName": "Rabbi",
-    "seriesName": "Series",
-    "audioUrl": "https://...",
-    "date": "2026-02-07",
-    "duration": 3600
-  }
-]
-```
-
----
-
-## 🎨 WPF User Interface
-
-- **Modern Design**: Clean, professional layout with dark theme
-- **Hebrew Support**: Full RTL support (right-to-left)
-- **Professional Colors**: Dark blue (#2C3E50), accent colors
-- **Responsive**: Dynamic list boxes and data grid
-- **Real-time Status**: Progress bar and status messages
-
----
-
-## 📦 Technology Stack
-
-| Layer | Technology | Version |
-|-------|-----------|---------|
-| **Framework** | .NET | 8.0 |
-| **API** | ASP.NET Core | 8.0 |
-| **Desktop** | WPF | .NET 8.0-windows |
-| **HTML Parsing** | HtmlAgilityPack | 1.11.54 |
-| **Data Access** | Entity Framework Core | 8.0.2 |
-| **Database** | SQLite (ready) | 8.0.2 |
-
----
-
-## ✨ Key Features
-
-### Backend (Core Library)
-- ✅ Async HTTP requests to meirtv.com
-- ✅ HTML parsing for data extraction
-- ✅ Download progress tracking
-- ✅ Path sanitization for file safety
-- ✅ Error handling with detailed messages
-
-### API Server
-- ✅ RESTful endpoints with JSON
-- ✅ CORS enabled for client requests
-- ✅ Swagger/OpenAPI documentation
-- ✅ Async request handling
-- ✅ Exception handling middleware
-
-### Desktop Application
-- ✅ List of rabbis with lesson counts
-- ✅ Dynamic series selection
-- ✅ Data grid with sortable columns
-- ✅ Selection change handlers
-- ✅ Download buttons (ready for implementation)
-- ✅ Status messages and progress bar
-
----
-
-## 📊 Build Status
-
-```
-✓ Solution compiles with 0 warnings, 0 errors
-✓ All projects reference correct dependencies
-✓ WPF application runs without errors
-✓ API server starts successfully
-✓ CORS and middleware configured correctly
-```
-
----
-
-## 🔮 Future Enhancements
-
-- [ ] Implement actual download functionality
-- [ ] Add SQLite caching for offline access
-- [ ] Create unit tests (xUnit/NUnit)
-- [ ] Implement MVVM pattern in WPF
-- [ ] Add multi-threaded downloads
-- [ ] Create installer (NSIS/MSI)
-- [ ] Add lesson search feature
-- [ ] Implement settings/preferences
-- [ ] Add dark/light theme toggle
-- [ ] Create auto-updater
-
----
-
-## 📝 Development Notes
-
-### Code Quality
-- Follows C# naming conventions (PascalCase, camelCase)
-- Interfaces for dependency injection
-- Async/await for non-blocking operations
-- Proper error handling with try-catch
-- Clean separation of concerns
-
-### Project Structure
-- **Core**: Reusable business logic
-- **API**: REST endpoints and controllers
-- **Desktop**: UI layer (WPF)
-
-### Configuration
-- Swagger enabled in Development
-- CORS allows all origins (can be restricted)
-- HTTPS redirection handled
-- Async operations throughout
-
----
-
-## 🧪 Testing
-
-### Manual API Testing
-
-```powershell
-# Test Rabbis endpoint
-curl http://localhost:5099/api/rabbis
-
-# Test Series endpoint
-curl http://localhost:5099/api/series
-
-# Test Lessons endpoint
-curl 'http://localhost:5099/api/lessons?page=1'
-
-# With PowerShell
-Invoke-RestMethod -Uri 'http://localhost:5099/api/rabbis'
-```
-
-### Desktop Application Testing
-1. Start API server
-2. Launch desktop app
-3. Verify rabbi list loads
-4. Click on a rabbi
-5. Verify series list updates
-6. Click on a series
-7. Verify lessons load in grid
-
----
-
-## 🏆 Advantages of .NET Core Version
-
-1. **Performance**: Compiled vs interpreted (~5-10x faster)
-2. **Type Safety**: Compile-time checking prevents runtime errors
-3. **Native Windows**: WPF is native Windows (no Electron overhead)
-4. **Memory Usage**: .NET Core uses less memory than Electron
-5. **Single Executable**: Can build single .exe file (no node_modules)
-6. **Modern Tooling**: Full IDE support in Visual Studio Code
-7. **Cross-Platform**: API can run on Linux/Mac (desktop requires Windows)
-8. **Enterprise Ready**: Built-in dependency injection, logging, etc.
-
----
-
-## 📜 License
-
-MIT - See LICENSE file for details
-
----
-
-**Refactored**: February 7, 2026  
-**Framework**: .NET 8.0  
-**Status**: ✅ Production Ready  
-**All Systems**: Operational ✓
+MIT
