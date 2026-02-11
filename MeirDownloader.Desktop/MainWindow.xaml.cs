@@ -9,6 +9,7 @@ using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Data;
+using System.Windows.Media;
 using MeirDownloader.Core.Models;
 using MeirDownloader.Core.Services;
 using MeirDownloader.Desktop.Services;
@@ -49,7 +50,24 @@ public partial class MainWindow : Window
         var version = System.Reflection.Assembly.GetExecutingAssembly().GetName().Version;
         VersionText.Text = $"v{version?.Major}.{version?.Minor}.{version?.Build}";
 
+        UpdateThemeToggleButton();
+
         LoadRabbis();
+    }
+
+    private void ThemeToggle_Click(object sender, RoutedEventArgs e)
+    {
+        ThemeManager.ToggleTheme();
+        UpdateThemeToggleButton();
+    }
+
+    private void UpdateThemeToggleButton()
+    {
+        if (ThemeToggleButton != null)
+        {
+            ThemeToggleButton.Content = ThemeManager.CurrentTheme == AppTheme.Dark ? "☀" : "🌙";
+            ThemeToggleButton.ToolTip = ThemeManager.CurrentTheme == AppTheme.Dark ? "Switch to Light Mode" : "Switch to Dark Mode";
+        }
     }
 
     private async void LoadRabbis()
@@ -492,6 +510,12 @@ public partial class MainWindow : Window
         var version = System.Reflection.Assembly.GetExecutingAssembly().GetName().Version;
         var versionString = $"{version?.Major}.{version?.Minor}.{version?.Build}";
 
+        var bgBrush = FindResource("CardBackgroundBrush") as Brush ?? FindResource("SurfaceBrush") as Brush ?? Brushes.White;
+        var textPrimary = FindResource("TextPrimaryBrush") as Brush ?? Brushes.Black;
+        var textSecondary = FindResource("TextSecondaryBrush") as Brush ?? Brushes.Gray;
+        var accentBrush = FindResource("AccentBrush") as Brush ?? Brushes.Teal;
+        var borderBrush = FindResource("BorderBrush") as Brush ?? Brushes.LightGray;
+
         var aboutWindow = new Window
         {
             Title = "אודות",
@@ -501,16 +525,86 @@ public partial class MainWindow : Window
             Owner = this,
             ResizeMode = ResizeMode.NoResize,
             FlowDirection = FlowDirection.RightToLeft,
-            Background = System.Windows.Media.Brushes.White,
-            FontFamily = new System.Windows.Media.FontFamily("Segoe UI"),
+            WindowStyle = WindowStyle.None,
+            AllowsTransparency = true,
+            Background = Brushes.Transparent,
+            FontFamily = new FontFamily("Segoe UI"),
             Icon = this.Icon
         };
 
+        // Outer border with rounded corners and theme background
+        var outerBorder = new Border
+        {
+            Background = bgBrush,
+            CornerRadius = new CornerRadius(12),
+            BorderBrush = borderBrush,
+            BorderThickness = new Thickness(1),
+            Margin = new Thickness(10),
+            Effect = new System.Windows.Media.Effects.DropShadowEffect
+            {
+                BlurRadius = 15,
+                ShadowDepth = 3,
+                Opacity = 0.3,
+                Color = Colors.Black
+            }
+        };
+
+        var outerStack = new StackPanel();
+
+        // Custom title bar
+        var titleBar = new Grid
+        {
+            Background = Brushes.Transparent,
+            Margin = new Thickness(0)
+        };
+        titleBar.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        titleBar.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+        var titleText = new TextBlock
+        {
+            Text = "אודות",
+            FontSize = 13,
+            Foreground = textSecondary,
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(15, 10, 0, 10)
+        };
+        Grid.SetColumn(titleText, 0);
+        titleBar.Children.Add(titleText);
+
+        var closeX = new Button
+        {
+            Content = "✕",
+            FontSize = 14,
+            Foreground = textSecondary,
+            Background = Brushes.Transparent,
+            BorderThickness = new Thickness(0),
+            Cursor = System.Windows.Input.Cursors.Hand,
+            Padding = new Thickness(12, 6, 12, 6),
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        closeX.Click += (_, _) => aboutWindow.Close();
+        Grid.SetColumn(closeX, 1);
+        titleBar.Children.Add(closeX);
+
+        // Allow dragging the window by the title bar
+        titleBar.MouseLeftButtonDown += (_, args) => { if (args.ClickCount == 1) aboutWindow.DragMove(); };
+
+        outerStack.Children.Add(titleBar);
+
+        // Separator line
+        outerStack.Children.Add(new Border
+        {
+            Height = 1,
+            Background = borderBrush,
+            Margin = new Thickness(0)
+        });
+
+        // Content area
         var stack = new StackPanel
         {
             VerticalAlignment = VerticalAlignment.Center,
             HorizontalAlignment = HorizontalAlignment.Center,
-            Margin = new Thickness(30, 25, 30, 30)
+            Margin = new Thickness(30, 20, 30, 30)
         };
 
         stack.Children.Add(new TextBlock
@@ -518,6 +612,7 @@ public partial class MainWindow : Window
             Text = "מוריד שיעורים",
             FontSize = 22,
             FontWeight = FontWeights.Bold,
+            Foreground = textPrimary,
             HorizontalAlignment = HorizontalAlignment.Center,
             Margin = new Thickness(0, 0, 0, 5)
         });
@@ -526,7 +621,7 @@ public partial class MainWindow : Window
         {
             Text = "Meir Downloader",
             FontSize = 14,
-            Foreground = System.Windows.Media.Brushes.Gray,
+            Foreground = textSecondary,
             HorizontalAlignment = HorizontalAlignment.Center,
             FlowDirection = FlowDirection.LeftToRight,
             Margin = new Thickness(0, 0, 0, 10)
@@ -536,7 +631,7 @@ public partial class MainWindow : Window
         {
             Text = $"גרסה {versionString}",
             FontSize = 13,
-            Foreground = System.Windows.Media.Brushes.Gray,
+            Foreground = textSecondary,
             HorizontalAlignment = HorizontalAlignment.Center,
             Margin = new Thickness(0, 0, 0, 15)
         });
@@ -546,9 +641,8 @@ public partial class MainWindow : Window
             Content = "GitHub: AviGitHub/meir-downloader",
             Cursor = System.Windows.Input.Cursors.Hand,
             HorizontalAlignment = HorizontalAlignment.Center,
-            Foreground = new System.Windows.Media.SolidColorBrush(
-                (System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString("#1ABC9C")),
-            Background = System.Windows.Media.Brushes.Transparent,
+            Foreground = accentBrush,
+            Background = Brushes.Transparent,
             BorderThickness = new Thickness(0),
             FontSize = 13,
             FlowDirection = FlowDirection.LeftToRight,
@@ -579,7 +673,9 @@ public partial class MainWindow : Window
         closeButton.Click += (_, _) => aboutWindow.Close();
         stack.Children.Add(closeButton);
 
-        aboutWindow.Content = stack;
+        outerStack.Children.Add(stack);
+        outerBorder.Child = outerStack;
+        aboutWindow.Content = outerBorder;
         aboutWindow.ShowDialog();
     }
 
