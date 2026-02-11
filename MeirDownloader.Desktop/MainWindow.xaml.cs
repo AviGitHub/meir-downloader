@@ -546,7 +546,7 @@ public partial class MainWindow : Window
         {
             Title = "אודות",
             Width = 400,
-            Height = 250,
+            SizeToContent = SizeToContent.Height,
             WindowStartupLocation = WindowStartupLocation.CenterOwner,
             Owner = this,
             ResizeMode = ResizeMode.NoResize,
@@ -560,7 +560,7 @@ public partial class MainWindow : Window
         {
             VerticalAlignment = VerticalAlignment.Center,
             HorizontalAlignment = HorizontalAlignment.Center,
-            Margin = new Thickness(30)
+            Margin = new Thickness(30, 25, 30, 30)
         };
 
         stack.Children.Add(new TextBlock
@@ -615,21 +615,16 @@ public partial class MainWindow : Window
         };
         stack.Children.Add(linkButton);
 
-        var accentColor = (System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString("#1ABC9C");
-        var accentBrush = new System.Windows.Media.SolidColorBrush(accentColor);
-
         var closeButton = new Button
         {
             Content = "סגור",
-            Width = 100,
+            Width = 120,
             HorizontalAlignment = HorizontalAlignment.Center,
-            Padding = new Thickness(10, 6, 10, 6),
-            FontSize = 13,
+            Padding = new Thickness(15, 8, 15, 8),
+            FontSize = 14,
+            FontWeight = FontWeights.SemiBold,
             Cursor = System.Windows.Input.Cursors.Hand,
-            Background = System.Windows.Media.Brushes.White,
-            Foreground = accentBrush,
-            BorderBrush = accentBrush,
-            BorderThickness = new Thickness(1.5),
+            Style = (Style)FindResource("SecondaryButtonStyle"),
         };
         closeButton.Click += (_, _) => aboutWindow.Close();
         stack.Children.Add(closeButton);
