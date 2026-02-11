@@ -53,54 +53,66 @@
             <Grid Grid.Column="0" Background="White" Margin="0,0,15,0">
                 <StackPanel Margin="15">
                     <TextBlock Text="בחר רב" FontSize="14" FontWeight="Bold" Foreground="#2C3E50" Margin="0,0,0,10"/>
-                    <ListBox x:Name="RabbiListBox" Height="200" Background="#ECF0F1" BorderThickness="0"
-                             SelectionChanged="RabbiListBox_SelectionChanged">
-                        <ListBox.ItemTemplate>
-                            <DataTemplate>
-                                <StackPanel Orientation="Horizontal">
-                                    <StackPanel.ToolTip>
-                                        <StackPanel>
-                                            <TextBlock Text="{Binding Name}" FontWeight="Bold" TextWrapping="Wrap" MaxWidth="400"/>
-                                            <TextBlock>
-                                                <Run Text="{Binding Count, Mode=OneWay}"/>
-                                                <Run Text=" שיעורים"/>
-                                            </TextBlock>
-                                        </StackPanel>
-                                    </StackPanel.ToolTip>
-                                    <TextBlock Text="{Binding Name}" Padding="10,5" TextTrimming="CharacterEllipsis" MaxWidth="200"/>
-                                    <TextBlock Text="{Binding Count, StringFormat=' ({0})'}" Padding="0,5" Foreground="#7F8C8D"/>
-                                </StackPanel>
-                            </DataTemplate>
-                        </ListBox.ItemTemplate>
-                    </ListBox>
-                    <!-- Rabbi loading indicator -->
-                    <ProgressBar x:Name="RabbiLoadingBar" Height="3" IsIndeterminate="True"
-                                 Foreground="#3498DB" Visibility="Collapsed" Margin="0,2,0,0"/>
+                    <Grid Height="200">
+                        <ListBox x:Name="RabbiListBox" Background="#ECF0F1" BorderThickness="0"
+                                 SelectionChanged="RabbiListBox_SelectionChanged">
+                            <ListBox.ItemTemplate>
+                                <DataTemplate>
+                                    <StackPanel Orientation="Horizontal">
+                                        <StackPanel.ToolTip>
+                                            <StackPanel>
+                                                <TextBlock Text="{Binding Name}" FontWeight="Bold" TextWrapping="Wrap" MaxWidth="400"/>
+                                                <TextBlock>
+                                                    <Run Text="{Binding Count, Mode=OneWay}"/>
+                                                    <Run Text=" שיעורים"/>
+                                                </TextBlock>
+                                            </StackPanel>
+                                        </StackPanel.ToolTip>
+                                        <TextBlock Text="{Binding Name}" Padding="10,5" TextTrimming="CharacterEllipsis" MaxWidth="200"/>
+                                        <TextBlock Text="{Binding Count, StringFormat=' ({0})'}" Padding="0,5" Foreground="#7F8C8D"/>
+                                    </StackPanel>
+                                </DataTemplate>
+                            </ListBox.ItemTemplate>
+                        </ListBox>
+                        <!-- Rabbi loading indicator - overlays the ListBox -->
+                        <StackPanel x:Name="RabbiLoadingBar" Visibility="Collapsed"
+                                    VerticalAlignment="Center" HorizontalAlignment="Center">
+                            <ProgressBar IsIndeterminate="True" Height="6" Width="180" Foreground="#1ABC9C"/>
+                            <TextBlock Text="טוען רבנים..." TextAlignment="Center" Margin="0,8,0,0"
+                                       Foreground="#7F8C8D" FontSize="12"/>
+                        </StackPanel>
+                    </Grid>
 
                     <TextBlock Text="בחר סדרה" FontSize="14" FontWeight="Bold" Foreground="#2C3E50" Margin="0,20,0,10"/>
-                    <ListBox x:Name="SeriesListBox" Height="200" Background="#ECF0F1" BorderThickness="0"
-                             SelectionChanged="SeriesListBox_SelectionChanged">
-                        <ListBox.ItemTemplate>
-                            <DataTemplate>
-                                <StackPanel Orientation="Horizontal">
-                                    <StackPanel.ToolTip>
-                                        <StackPanel>
-                                            <TextBlock Text="{Binding Name}" FontWeight="Bold" TextWrapping="Wrap" MaxWidth="400"/>
-                                            <TextBlock>
-                                                <Run Text="{Binding Count, Mode=OneWay}"/>
-                                                <Run Text=" שיעורים"/>
-                                            </TextBlock>
-                                        </StackPanel>
-                                    </StackPanel.ToolTip>
-                                    <TextBlock Text="{Binding Name}" Padding="10,5" TextTrimming="CharacterEllipsis" MaxWidth="200"/>
-                                    <TextBlock Text="{Binding Count, StringFormat=' ({0})'}" Padding="0,5" Foreground="#7F8C8D"/>
-                                </StackPanel>
-                            </DataTemplate>
-                        </ListBox.ItemTemplate>
-                    </ListBox>
-                    <!-- Series loading indicator -->
-                    <ProgressBar x:Name="SeriesLoadingBar" Height="3" IsIndeterminate="True"
-                                 Foreground="#3498DB" Visibility="Collapsed" Margin="0,2,0,0"/>
+                    <Grid Height="200">
+                        <ListBox x:Name="SeriesListBox" Background="#ECF0F1" BorderThickness="0"
+                                 SelectionChanged="SeriesListBox_SelectionChanged">
+                            <ListBox.ItemTemplate>
+                                <DataTemplate>
+                                    <StackPanel Orientation="Horizontal">
+                                        <StackPanel.ToolTip>
+                                            <StackPanel>
+                                                <TextBlock Text="{Binding Name}" FontWeight="Bold" TextWrapping="Wrap" MaxWidth="400"/>
+                                                <TextBlock>
+                                                    <Run Text="{Binding Count, Mode=OneWay}"/>
+                                                    <Run Text=" שיעורים"/>
+                                                </TextBlock>
+                                            </StackPanel>
+                                        </StackPanel.ToolTip>
+                                        <TextBlock Text="{Binding Name}" Padding="10,5" TextTrimming="CharacterEllipsis" MaxWidth="200"/>
+                                        <TextBlock Text="{Binding Count, StringFormat=' ({0})'}" Padding="0,5" Foreground="#7F8C8D"/>
+                                    </StackPanel>
+                                </DataTemplate>
+                            </ListBox.ItemTemplate>
+                        </ListBox>
+                        <!-- Series loading indicator - overlays the ListBox -->
+                        <StackPanel x:Name="SeriesLoadingBar" Visibility="Collapsed"
+                                    VerticalAlignment="Center" HorizontalAlignment="Center">
+                            <ProgressBar IsIndeterminate="True" Height="6" Width="180" Foreground="#1ABC9C"/>
+                            <TextBlock Text="טוען סדרות..." TextAlignment="Center" Margin="0,8,0,0"
+                                       Foreground="#7F8C8D" FontSize="12"/>
+                        </StackPanel>
+                    </Grid>
 
                     <Button Content="טען מחדש" Click="RefreshButton_Click" Background="#3498DB" Foreground="White" 
                             FontWeight="Bold" Padding="10,8" Margin="0,20,0,0" Cursor="Hand" BorderThickness="0"/>
@@ -111,7 +123,6 @@
             <Grid Grid.Column="1" Background="White">
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto"/>
-                    <RowDefinition Height="Auto"/>
                     <RowDefinition Height="*"/>
                     <RowDefinition Height="Auto"/>
                     <RowDefinition Height="Auto"/>
@@ -121,14 +132,11 @@
                 <!-- Title -->
                 <TextBlock Grid.Row="0" Text="שיעורים" FontSize="16" FontWeight="Bold" Foreground="#2C3E50" Margin="15,15,15,10"/>
 
-                <!-- Lessons loading indicator -->
-                <ProgressBar Grid.Row="1" x:Name="LessonsLoadingBar" Height="3" IsIndeterminate="True"
-                             Foreground="#3498DB" Visibility="Collapsed" Margin="15,0,15,5"/>
-
-                <!-- DataGrid -->
-                <DataGrid Grid.Row="2" x:Name="LessonsGrid" AutoGenerateColumns="False" Background="White" 
-                         RowHeaderWidth="0" BorderThickness="0" Margin="15,0,15,10"
-                         IsReadOnly="True" SelectionMode="Single">
+                <!-- DataGrid + Lessons loading indicator (overlaid) -->
+                <Grid Grid.Row="1" Margin="15,0,15,10">
+                    <DataGrid x:Name="LessonsGrid" AutoGenerateColumns="False" Background="White"
+                             RowHeaderWidth="0" BorderThickness="0"
+                             IsReadOnly="True" SelectionMode="Single">
                     <DataGrid.Columns>
                         <!-- Lesson Number -->
                         <DataGridTextColumn Header="#" Binding="{Binding LessonNumber}" Width="40"/>
@@ -168,10 +176,18 @@
                             </DataGridTemplateColumn.CellTemplate>
                         </DataGridTemplateColumn>
                     </DataGrid.Columns>
-                </DataGrid>
+                    </DataGrid>
+                    <!-- Lessons loading indicator - overlays the DataGrid -->
+                    <StackPanel x:Name="LessonsLoadingBar" Visibility="Collapsed"
+                                VerticalAlignment="Center" HorizontalAlignment="Center">
+                        <ProgressBar IsIndeterminate="True" Height="6" Width="200" Foreground="#1ABC9C"/>
+                        <TextBlock Text="טוען שיעורים..." TextAlignment="Center" Margin="0,8,0,0"
+                                   Foreground="#7F8C8D" FontSize="12"/>
+                    </StackPanel>
+                </Grid>
 
                 <!-- Download Buttons Toolbar -->
-                <StackPanel Grid.Row="3" Orientation="Horizontal" Margin="15,5,15,10" HorizontalAlignment="Right">
+                <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="15,5,15,10" HorizontalAlignment="Right">
                     <Button x:Name="DownloadSeriesButton" Content="הורד סדרה" Click="DownloadSeriesButton_Click" 
                             Background="#27AE60" Foreground="White" FontWeight="Bold" Padding="15,8" Margin="0,0,10,0" Cursor="Hand"
                             IsEnabled="False" BorderThickness="0"/>
@@ -184,7 +200,7 @@
                 </StackPanel>
 
                 <!-- Overall Progress Section -->
-                <Grid Grid.Row="4" Margin="15,0,15,5">
+                <Grid Grid.Row="3" Margin="15,0,15,5">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*"/>
                         <ColumnDefinition Width="Auto"/>
@@ -196,7 +212,7 @@
                 </Grid>
 
                 <!-- Status Bar -->
-                <Grid Grid.Row="5" Background="#ECF0F1" Margin="0">
+                <Grid Grid.Row="4" Background="#ECF0F1" Margin="0">
                     <TextBlock x:Name="StatusText" Text="מוכן" VerticalAlignment="Center" Foreground="#2C3E50" Margin="15,8"/>
                 </Grid>
             </Grid>
