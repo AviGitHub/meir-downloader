@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using System.IO;
 using System.Linq;
 using System.Threading;
@@ -18,8 +19,12 @@ public partial class MainWindow : Window
     private readonly DownloadManager _downloadManager;
     private string _downloadPath;
     private CancellationTokenSource? _loadingCts;
+    private CancellationTokenSource? _rabbiLoadingCts;
+    private CancellationTokenSource? _seriesLoadingCts;
     private bool _isDownloading;
     private List<LessonViewModel>? _currentLessons;
+    private readonly ObservableCollection<Rabbi> _rabbis = new();
+    private readonly ObservableCollection<Series> _seriesList = new();
 
     public MainWindow()
     {
@@ -42,12 +47,29 @@ public partial class MainWindow : Window
     {
         try
         {
+            _rabbiLoadingCts?.Cancel();
+            _rabbiLoadingCts = new CancellationTokenSource();
+            var ct = _rabbiLoadingCts.Token;
+
             RabbiLoadingBar.Visibility = Visibility.Visible;
+            _rabbis.Clear();
+            RabbiListBox.ItemsSource = _rabbis;
             StatusText.Text = "טוען רבנים...";
 
-            var rabbis = await _downloaderService.GetRabbisAsync();
-            RabbiListBox.ItemsSource = rabbis;
-            StatusText.Text = $"נטענו {rabbis.Count} רבנים";
+            await foreach (var page in _downloaderService.GetRabbisStreamAsync(ct))
+            {
+                foreach (var rabbi in page)
+                {
+                    _rabbis.Add(rabbi);
+                }
+                StatusText.Text = $"נטענו {_rabbis.Count} רבנים...";
+            }
+
+            StatusText.Text = $"נטענו {_rabbis.Count} רבנים";
+        }
+        catch (OperationCanceledException)
+        {
+            // Loading was cancelled
         }
         catch (Exception ex)
         {
@@ -66,17 +88,36 @@ public partial class MainWindow : Window
         {
             try
             {
+                _seriesLoadingCts?.Cancel();
+                _seriesLoadingCts = new CancellationTokenSource();
+                var ct = _seriesLoadingCts.Token;
+
                 SeriesLoadingBar.Visibility = Visibility.Visible;
                 StatusText.Text = $"טוען סדרות עבור {rabbi.Name}...";
-                SeriesListBox.ItemsSource = null;
+                _seriesList.Clear();
+                SeriesListBox.ItemsSource = _seriesList;
                 LessonsGrid.ItemsSource = null;
                 _currentLessons = null;
                 UpdateDownloadButtonStates();
 
-                var series = await _downloaderService.GetSeriesAsync(rabbi.Id);
-                // Filter out series with 0 lessons and sort alphabetically
-                SeriesListBox.ItemsSource = series.Where(s => s.Count > 0).OrderBy(s => s.Name).ToList();
-                StatusText.Text = $"נטענו {series.Count} סדרות עבור {rabbi.Name}";
+                await foreach (var page in _downloaderService.GetSeriesStreamAsync(rabbi.Id, ct))
+                {
+                    foreach (var series in page.Where(s => s.Count > 0))
+                    {
+                        // Insert in sorted order (alphabetically by name)
+                        var index = 0;
+                        while (index < _seriesList.Count && string.Compare(_seriesList[index].Name, series.Name, StringComparison.Ordinal) < 0)
+                            index++;
+                        _seriesList.Insert(index, series);
+                    }
+                    StatusText.Text = $"נטענו {_seriesList.Count} סדרות עבור {rabbi.Name}...";
+                }
+
+                StatusText.Text = $"נטענו {_seriesList.Count} סדרות עבור {rabbi.Name}";
+            }
+            catch (OperationCanceledException)
+            {
+                // Loading was cancelled (user selected a different rabbi)
             }
             catch (Exception ex)
             {
@@ -146,6 +187,10 @@ public partial class MainWindow : Window
 
     private void RefreshButton_Click(object sender, RoutedEventArgs e)
     {
+        _rabbiLoadingCts?.Cancel();
+        _seriesLoadingCts?.Cancel();
+        _rabbis.Clear();
+        _seriesList.Clear();
         RabbiListBox.ItemsSource = null;
         SeriesListBox.ItemsSource = null;
         LessonsGrid.ItemsSource = null;

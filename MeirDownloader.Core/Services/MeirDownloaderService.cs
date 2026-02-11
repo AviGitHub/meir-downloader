@@ -1,5 +1,6 @@
 using MeirDownloader.Core.Models;
 using System.Net;
+using System.Runtime.CompilerServices;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 
@@ -404,6 +405,209 @@ public class MeirDownloaderService : IMeirDownloaderService
         }
 
         return allLessons;
+    }
+
+    public async IAsyncEnumerable<List<Rabbi>> GetRabbisStreamAsync([EnumeratorCancellation] CancellationToken ct = default)
+    {
+        int page = 1;
+        int totalPages = 1;
+
+        while (page <= totalPages)
+        {
+            ct.ThrowIfCancellationRequested();
+
+            var url = $"{BaseApiUrl}/rabbis?per_page=100&page={page}&orderby=count&order=desc&_fields=id,name,slug,count";
+            var response = await _httpClient.GetAsync(url, ct);
+
+            if (!response.IsSuccessStatusCode)
+            {
+                System.Diagnostics.Debug.WriteLine($"Failed to fetch rabbis page {page}: HTTP {(int)response.StatusCode}");
+                break;
+            }
+
+            if (page == 1 && response.Headers.TryGetValues("X-WP-TotalPages", out var totalPagesValues))
+            {
+                int.TryParse(totalPagesValues.FirstOrDefault(), out totalPages);
+            }
+
+            var json = await response.Content.ReadAsStringAsync(ct);
+            var items = JsonSerializer.Deserialize<JsonElement>(json);
+            var pageResults = new List<Rabbi>();
+
+            if (items.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var item in items.EnumerateArray())
+                {
+                    pageResults.Add(new Rabbi
+                    {
+                        Id = item.GetProperty("id").GetInt32().ToString(),
+                        Name = item.GetProperty("name").GetString() ?? string.Empty,
+                        Count = item.GetProperty("count").GetInt32()
+                    });
+                }
+            }
+
+            yield return pageResults;
+            page++;
+        }
+    }
+
+    public async IAsyncEnumerable<List<Series>> GetSeriesStreamAsync(string? rabbiId = null, [EnumeratorCancellation] CancellationToken ct = default)
+    {
+        if (!string.IsNullOrEmpty(rabbiId))
+        {
+            await foreach (var page in GetSeriesForRabbiStreamAsync(rabbiId, ct).WithCancellation(ct))
+            {
+                yield return page;
+            }
+            yield break;
+        }
+
+        // Stream all series (no rabbi filter)
+        int pageNum = 1;
+        int totalPages = 1;
+
+        while (pageNum <= totalPages)
+        {
+            ct.ThrowIfCancellationRequested();
+
+            var url = $"{BaseApiUrl}/shiurim-series?per_page=100&page={pageNum}&hide_empty=true&orderby=count&order=desc&_fields=id,name,count";
+            var response = await _httpClient.GetAsync(url, ct);
+
+            if (!response.IsSuccessStatusCode)
+            {
+                System.Diagnostics.Debug.WriteLine($"Failed to fetch series page {pageNum}: HTTP {(int)response.StatusCode}");
+                break;
+            }
+
+            if (pageNum == 1 && response.Headers.TryGetValues("X-WP-TotalPages", out var totalPagesValues))
+            {
+                int.TryParse(totalPagesValues.FirstOrDefault(), out totalPages);
+            }
+
+            var json = await response.Content.ReadAsStringAsync(ct);
+            var items = JsonSerializer.Deserialize<JsonElement>(json);
+            var pageResults = new List<Series>();
+
+            if (items.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var item in items.EnumerateArray())
+                {
+                    pageResults.Add(new Series
+                    {
+                        Id = item.GetProperty("id").GetInt32().ToString(),
+                        Name = WebUtility.HtmlDecode(item.GetProperty("name").GetString() ?? string.Empty),
+                        Count = item.GetProperty("count").GetInt32()
+                    });
+                }
+            }
+
+            yield return pageResults;
+            pageNum++;
+        }
+    }
+
+    /// <summary>
+    /// Stream series for a specific rabbi. First collects all lesson pages to discover series IDs,
+    /// then yields series details in chunks as they are fetched.
+    /// </summary>
+    private async IAsyncEnumerable<List<Series>> GetSeriesForRabbiStreamAsync(string rabbiId, [EnumeratorCancellation] CancellationToken ct)
+    {
+        var seriesLessonCount = new Dictionary<int, int>();
+
+        // Step 1: Paginate through all lessons for this rabbi to collect series IDs and counts
+        int page = 1;
+        int totalPages = 1;
+
+        while (page <= totalPages)
+        {
+            ct.ThrowIfCancellationRequested();
+
+            var url = $"{BaseApiUrl}/shiurim?rabbis={rabbiId}&per_page=100&page={page}&_fields=shiurim-series";
+            var response = await _httpClient.GetAsync(url, ct);
+
+            if (!response.IsSuccessStatusCode)
+            {
+                System.Diagnostics.Debug.WriteLine($"Failed to fetch lessons for rabbi {rabbiId} page {page}: HTTP {(int)response.StatusCode}");
+                break;
+            }
+
+            if (page == 1 && response.Headers.TryGetValues("X-WP-TotalPages", out var totalPagesValues))
+            {
+                int.TryParse(totalPagesValues.FirstOrDefault(), out totalPages);
+            }
+
+            var json = await response.Content.ReadAsStringAsync(ct);
+            var items = JsonSerializer.Deserialize<JsonElement>(json);
+
+            if (items.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var item in items.EnumerateArray())
+                {
+                    if (item.TryGetProperty("shiurim-series", out var seriesArray) && seriesArray.ValueKind == JsonValueKind.Array)
+                    {
+                        foreach (var seriesId in seriesArray.EnumerateArray())
+                        {
+                            var id = seriesId.GetInt32();
+                            if (seriesLessonCount.ContainsKey(id))
+                                seriesLessonCount[id]++;
+                            else
+                                seriesLessonCount[id] = 1;
+                        }
+                    }
+                }
+            }
+
+            page++;
+        }
+
+        if (seriesLessonCount.Count == 0)
+            yield break;
+
+        // Step 2: Fetch series details for the discovered IDs (in chunks of 100), yielding each chunk
+        var seriesIds = seriesLessonCount.Keys.ToList();
+
+        for (int i = 0; i < seriesIds.Count; i += 100)
+        {
+            ct.ThrowIfCancellationRequested();
+
+            var chunk = seriesIds.Skip(i).Take(100);
+            var includeParam = string.Join(",", chunk);
+            var url = $"{BaseApiUrl}/shiurim-series?include={includeParam}&per_page=100&_fields=id,name,count";
+            var response = await _httpClient.GetAsync(url, ct);
+
+            if (!response.IsSuccessStatusCode)
+            {
+                System.Diagnostics.Debug.WriteLine($"Failed to fetch series details: HTTP {(int)response.StatusCode}");
+                continue;
+            }
+
+            var json = await response.Content.ReadAsStringAsync(ct);
+            var items = JsonSerializer.Deserialize<JsonElement>(json);
+            var chunkResults = new List<Series>();
+
+            if (items.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var item in items.EnumerateArray())
+                {
+                    var id = item.GetProperty("id").GetInt32();
+                    var rabbiSpecificCount = seriesLessonCount.ContainsKey(id) ? seriesLessonCount[id] : 0;
+
+                    if (rabbiSpecificCount > 0)
+                    {
+                        chunkResults.Add(new Series
+                        {
+                            Id = id.ToString(),
+                            Name = WebUtility.HtmlDecode(item.GetProperty("name").GetString() ?? string.Empty),
+                            Count = rabbiSpecificCount
+                        });
+                    }
+                }
+            }
+
+            if (chunkResults.Count > 0)
+                yield return chunkResults;
+        }
     }
 
     public async Task<string> DownloadLessonAsync(Lesson lesson, string downloadPath, IProgress<DownloadProgress> progress, CancellationToken ct = default)

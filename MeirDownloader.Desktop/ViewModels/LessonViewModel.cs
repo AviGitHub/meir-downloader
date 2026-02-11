@@ -1,5 +1,7 @@
+using System;
 using System.ComponentModel;
 using System.IO;
+using System.Linq;
 using System.Runtime.CompilerServices;
 using MeirDownloader.Core.Models;
 
@@ -29,6 +31,15 @@ public class LessonViewModel : INotifyPropertyChanged
     public string SeriesName => Lesson.SeriesName;
     public string AudioUrl => Lesson.AudioUrl;
     public string Date => Lesson.Date;
+    public string FormattedDate
+    {
+        get
+        {
+            if (DateTime.TryParse(Lesson.Date, out var date))
+                return date.ToString("dd.MM.yyyy");
+            return Lesson.Date;
+        }
+    }
     public string DisplayTitle => $"{LessonNumber:D3} - {Title}";
 
     public DownloadStatus Status
