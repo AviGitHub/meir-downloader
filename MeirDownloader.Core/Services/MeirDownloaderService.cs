@@ -635,10 +635,33 @@ public class MeirDownloaderService : IMeirDownloaderService, IDisposable
     {
         if (!string.IsNullOrEmpty(rabbiId))
         {
+            // Check cache first — fast path
+            var cacheKey = $"series_r{rabbiId}";
+            var cached = await _cacheService.GetAsync<List<Series>>(cacheKey);
+            if (cached != null)
+            {
+                yield return cached;
+                yield break;
+            }
+
+            // Cache miss — stream pages as they arrive for UI responsiveness,
+            // accumulate results, and fire-and-forget cache write after completion.
+            var allSeries = new List<Series>();
             await foreach (var page in GetSeriesForRabbiStreamAsync(rabbiId, ct).WithCancellation(ct))
             {
-                yield return page;
+                allSeries.AddRange(page);
+                yield return page;  // Yield each page immediately for responsive UI
             }
+
+            // Fire-and-forget cache write — not awaited so it completes independently.
+            // If the caller cancelled mid-stream, we won't reach here, which is fine:
+            // next time the user selects this rabbi it will be a cache miss again
+            // and will eventually complete a full load to populate the cache.
+            if (allSeries.Count > 0)
+            {
+                _ = _cacheService.SetAsync(cacheKey, allSeries, _defaultCacheExpiration);
+            }
+
             yield break;
         }
 
