@@ -1,4 +1,5 @@
 using System.IO;
+using System.Net.Http;
 using MeirDownloader.Core.Models;
 using MeirDownloader.Core.Services;
 using MeirDownloader.Desktop.ViewModels;
@@ -10,6 +11,7 @@ public class DownloadManager
     private readonly IMeirDownloaderService _service;
     private readonly SemaphoreSlim _semaphore;
     private CancellationTokenSource? _cts;
+    private static readonly HttpClient _httpClient = new() { Timeout = TimeSpan.FromMinutes(60) };
 
     public int MaxConcurrentDownloads { get; }
     public bool IsDownloading => _cts != null && !_cts.IsCancellationRequested;
@@ -81,6 +83,7 @@ public class DownloadManager
     private async Task DownloadSingleAsync(LessonViewModel lessonVm, string downloadPath, CancellationToken ct, Action onComplete)
     {
         await _semaphore.WaitAsync(ct);
+        string? filePath = null;
         try
         {
             ct.ThrowIfCancellationRequested();
@@ -100,15 +103,8 @@ public class DownloadManager
             {
                 Log($"URL resolution failed for '{lessonVm.Title}', falling back to wp2 pattern: {lessonVm.Lesson.AudioUrl}");
             }
-            // If resolution fails, fall back to the existing AudioUrl (wp2 pattern)
 
             lessonVm.StatusText = "מוריד...";
-
-            var progress = new Progress<DownloadProgress>(p =>
-            {
-                lessonVm.ProgressPercentage = p.ProgressPercentage;
-                lessonVm.StatusText = $"{p.ProgressPercentage}%";
-            });
 
             // Create directory structure
             var rabbiDir = Path.Combine(downloadPath, SanitizeFileName(lessonVm.RabbiName));
@@ -116,12 +112,43 @@ public class DownloadManager
             Directory.CreateDirectory(seriesDir);
 
             var fileName = $"{lessonVm.LessonNumber:D3}-{SanitizeFileName(lessonVm.Title)}.mp3";
-            var filePath = Path.Combine(seriesDir, fileName);
+            filePath = Path.Combine(seriesDir, fileName);
 
             Log($"Starting download for '{lessonVm.Title}' to {filePath}");
 
-            // Use the service's download method with lesson number for proper file naming
-            await _service.DownloadLessonAsync(lessonVm.Lesson, downloadPath, lessonVm.LessonNumber, progress, ct);
+            using var response = await _httpClient.GetAsync(lessonVm.Lesson.AudioUrl, HttpCompletionOption.ResponseHeadersRead, ct);
+            response.EnsureSuccessStatusCode();
+
+            var totalBytes = response.Content.Headers.ContentLength ?? -1L;
+            using var contentStream = await response.Content.ReadAsStreamAsync(ct);
+            using var fileStream = new FileStream(filePath, FileMode.Create, FileAccess.Write, FileShare.None, 81920, true);
+
+            var buffer = new byte[81920];
+            long totalRead = 0;
+            int bytesRead;
+            var lastReportTime = DateTime.MinValue;
+
+            // Capture context for progress updates
+            var progressReporter = new Progress<double>(p =>
+            {
+                lessonVm.ProgressPercentage = (int)p;
+                lessonVm.StatusText = $"{(int)p}%";
+            });
+            var progress = (IProgress<double>)progressReporter;
+
+            while ((bytesRead = await contentStream.ReadAsync(buffer, ct)) != 0)
+            {
+                await fileStream.WriteAsync(buffer.AsMemory(0, bytesRead), ct);
+                totalRead += bytesRead;
+
+                var now = DateTime.UtcNow;
+                if (totalBytes > 0 && (now - lastReportTime).TotalMilliseconds > 200) // Throttle to 200ms
+                {
+                    var percentage = (double)totalRead * 100 / totalBytes;
+                    progress.Report(percentage);
+                    lastReportTime = now;
+                }
+            }
 
             lessonVm.Status = DownloadStatus.Completed;
             lessonVm.ProgressPercentage = 100;
@@ -135,6 +162,7 @@ public class DownloadManager
             lessonVm.StatusText = "בוטל";
             lessonVm.ProgressPercentage = 0;
             Log($"Download cancelled for '{lessonVm.Title}'");
+            CleanupPartialFile(filePath);
         }
         catch (Exception ex)
         {
@@ -142,11 +170,28 @@ public class DownloadManager
             var shortError = ex.Message.Length > 50 ? ex.Message[..50] + "..." : ex.Message;
             lessonVm.StatusText = $"שגיאה: {shortError}";
             Log($"Download error for '{lessonVm.Title}': {ex.Message}");
+            CleanupPartialFile(filePath);
             onComplete(); // Count errors as completed for progress
         }
         finally
         {
             _semaphore.Release();
+        }
+    }
+
+    private static void CleanupPartialFile(string? filePath)
+    {
+        if (!string.IsNullOrEmpty(filePath) && File.Exists(filePath))
+        {
+            try
+            {
+                File.Delete(filePath);
+                Log($"Deleted partial file: {filePath}");
+            }
+            catch (Exception ex)
+            {
+                Log($"Failed to delete partial file {filePath}: {ex.Message}");
+            }
         }
     }
 

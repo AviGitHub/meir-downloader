@@ -7,6 +7,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Data;
 using MeirDownloader.Core.Models;
 using MeirDownloader.Core.Services;
 using MeirDownloader.Desktop.Services;
@@ -63,7 +64,7 @@ public partial class MainWindow : Window
 
             await foreach (var page in _downloaderService.GetRabbisStreamAsync(ct))
             {
-                foreach (var rabbi in page)
+                foreach (var rabbi in page.Where(r => r.Count > 0))
                 {
                     _rabbiViewModels.Add(new RabbiViewModel(rabbi));
                 }
@@ -96,6 +97,9 @@ public partial class MainWindow : Window
         var tasks = _rabbiViewModels.ToList().Select(async rabbiVm =>
         {
             if (rabbiVm.ImageLoaded) return;
+            
+            await Application.Current.Dispatcher.InvokeAsync(() => rabbiVm.IsImageLoading = true);
+            
             await semaphore.WaitAsync(ct);
             try
             {
@@ -126,6 +130,7 @@ public partial class MainWindow : Window
             }
             finally
             {
+                await Application.Current.Dispatcher.InvokeAsync(() => rabbiVm.IsImageLoading = false);
                 semaphore.Release();
             }
         });
@@ -234,6 +239,26 @@ public partial class MainWindow : Window
             finally
             {
                 LessonsLoadingBar.Visibility = Visibility.Collapsed;
+            }
+        }
+    }
+
+    private void SearchTextBox_TextChanged(object sender, TextChangedEventArgs e)
+    {
+        if (sender is TextBox textBox)
+        {
+            var view = CollectionViewSource.GetDefaultView(_rabbiViewModels);
+            if (view != null)
+            {
+                view.Filter = o =>
+                {
+                    if (string.IsNullOrWhiteSpace(textBox.Text)) return true;
+                    if (o is RabbiViewModel rabbiVm)
+                    {
+                        return rabbiVm.Name.Contains(textBox.Text, StringComparison.OrdinalIgnoreCase);
+                    }
+                    return false;
+                };
             }
         }
     }
@@ -482,6 +507,15 @@ public partial class MainWindow : Window
         {
             OverallProgressBar.Value = (double)completed / total * 100;
             OverallProgressText.Text = $"הורדו {completed} מתוך {total} שיעורים";
+        }
+    }
+
+    protected override void OnClosed(EventArgs e)
+    {
+        base.OnClosed(e);
+        if (_downloaderService is IDisposable disposable)
+        {
+            disposable.Dispose();
         }
     }
 }

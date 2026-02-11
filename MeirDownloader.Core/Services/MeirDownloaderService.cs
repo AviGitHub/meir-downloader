@@ -1,4 +1,7 @@
 using MeirDownloader.Core.Models;
+using Polly;
+using Polly.Retry;
+using System.Collections.Concurrent;
 using System.Net;
 using System.Runtime.CompilerServices;
 using System.Text.Json;
@@ -6,16 +9,39 @@ using System.Text.RegularExpressions;
 
 namespace MeirDownloader.Core.Services;
 
-public class MeirDownloaderService : IMeirDownloaderService
+public class MeirDownloaderService : IMeirDownloaderService, IDisposable
 {
     private readonly HttpClient _httpClient;
+    private readonly AsyncRetryPolicy<HttpResponseMessage> _retryPolicy;
+    private readonly ICacheService _cacheService;
     private const string BaseApiUrl = "https://meirtv.com/wp-json/wp/v2";
     private const string AudioBaseUrl = "https://mp3.meirtv.co.il//wp2";
+    private const int MaxConcurrency = 6;
+    private readonly TimeSpan _defaultCacheExpiration = TimeSpan.FromHours(24);
 
     public MeirDownloaderService()
     {
         _httpClient = new HttpClient();
         _httpClient.DefaultRequestHeaders.Add("User-Agent", "MeirDownloader/2.0");
+        _cacheService = new LiteDbCacheService();
+
+        // Retry on HttpRequestException, 5xx errors, and 429 Too Many Requests
+        _retryPolicy = Policy
+            .Handle<HttpRequestException>()
+            .OrResult<HttpResponseMessage>(r => !r.IsSuccessStatusCode && ((int)r.StatusCode >= 500 || r.StatusCode == HttpStatusCode.TooManyRequests))
+            .WaitAndRetryAsync(3, retryAttempt => TimeSpan.FromSeconds(Math.Pow(2, retryAttempt)),
+                (outcome, timeSpan, retryCount, context) =>
+                {
+                    Log($"Request failed with {outcome.Result?.StatusCode}. Waiting {timeSpan} before retry {retryCount}.");
+                });
+    }
+
+    private async Task<HttpResponseMessage> GetWithRetryAsync(string url, CancellationToken ct)
+    {
+        return await _retryPolicy.ExecuteAsync(async token =>
+        {
+            return await _httpClient.GetAsync(url, token);
+        }, ct);
     }
 
     private static void Log(string message)
@@ -33,55 +59,92 @@ public class MeirDownloaderService : IMeirDownloaderService
 
     public async Task<List<Rabbi>> GetRabbisAsync(CancellationToken ct = default)
     {
-        var allRabbis = new List<Rabbi>();
+        var cacheKey = "rabbis_all";
+        var cached = await _cacheService.GetAsync<List<Rabbi>>(cacheKey);
+        if (cached != null) return cached;
+
+        var allRabbis = new ConcurrentBag<Rabbi>();
+        int totalPages = 1;
 
         try
         {
-            int page = 1;
-            int totalPages = 1;
+            // Fetch page 1 to get total pages
+            var url1 = $"{BaseApiUrl}/rabbis?per_page=100&page=1&orderby=count&order=desc&_fields=id,name,slug,count,link";
+            var response1 = await GetWithRetryAsync(url1, ct);
 
-            while (page <= totalPages)
+            if (!response1.IsSuccessStatusCode)
             {
-                var url = $"{BaseApiUrl}/rabbis?per_page=100&page={page}&orderby=count&order=desc&_fields=id,name,slug,count,link";
-                var response = await _httpClient.GetAsync(url, ct);
+                Log($"Failed to fetch rabbis page 1: HTTP {(int)response1.StatusCode}");
+                return new List<Rabbi>();
+            }
 
-                if (!response.IsSuccessStatusCode)
+            if (response1.Headers.TryGetValues("X-WP-TotalPages", out var totalPagesValues))
+            {
+                int.TryParse(totalPagesValues.FirstOrDefault(), out totalPages);
+            }
+
+            var json1 = await response1.Content.ReadAsStringAsync(ct);
+            ProcessRabbisJson(json1, allRabbis);
+
+            if (totalPages > 1)
+            {
+                var semaphore = new SemaphoreSlim(MaxConcurrency);
+                var tasks = Enumerable.Range(2, totalPages - 1).Select(async page =>
                 {
-                    System.Diagnostics.Debug.WriteLine($"Failed to fetch rabbis page {page}: HTTP {(int)response.StatusCode}");
-                    break;
-                }
-
-                if (page == 1 && response.Headers.TryGetValues("X-WP-TotalPages", out var totalPagesValues))
-                {
-                    int.TryParse(totalPagesValues.FirstOrDefault(), out totalPages);
-                }
-
-                var json = await response.Content.ReadAsStringAsync(ct);
-                var items = JsonSerializer.Deserialize<JsonElement>(json);
-
-                if (items.ValueKind == JsonValueKind.Array)
-                {
-                    foreach (var item in items.EnumerateArray())
+                    await semaphore.WaitAsync(ct);
+                    try
                     {
-                        allRabbis.Add(new Rabbi
-                        {
-                            Id = item.GetProperty("id").GetInt32().ToString(),
-                            Name = item.GetProperty("name").GetString() ?? string.Empty,
-                            Count = item.GetProperty("count").GetInt32(),
-                            Link = item.TryGetProperty("link", out var linkProp) ? linkProp.GetString() ?? string.Empty : string.Empty
-                        });
-                    }
-                }
+                        var url = $"{BaseApiUrl}/rabbis?per_page=100&page={page}&orderby=count&order=desc&_fields=id,name,slug,count,link";
+                        var response = await GetWithRetryAsync(url, ct);
 
-                page++;
+                        if (response.IsSuccessStatusCode)
+                        {
+                            var json = await response.Content.ReadAsStringAsync(ct);
+                            ProcessRabbisJson(json, allRabbis);
+                        }
+                        else
+                        {
+                            Log($"Failed to fetch rabbis page {page}: HTTP {(int)response.StatusCode}");
+                        }
+                    }
+                    finally
+                    {
+                        semaphore.Release();
+                    }
+                });
+
+                await Task.WhenAll(tasks);
             }
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"Error fetching rabbis: {ex.Message}");
+            Log($"Error fetching rabbis: {ex.Message}");
         }
 
-        return allRabbis;
+        var result = allRabbis.ToList();
+        if (result.Any())
+        {
+            await _cacheService.SetAsync(cacheKey, result, _defaultCacheExpiration);
+        }
+        return result;
+    }
+
+    private void ProcessRabbisJson(string json, ConcurrentBag<Rabbi> collection)
+    {
+        var items = JsonSerializer.Deserialize<JsonElement>(json);
+        if (items.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var item in items.EnumerateArray())
+            {
+                collection.Add(new Rabbi
+                {
+                    Id = item.GetProperty("id").GetInt32().ToString(),
+                    Name = item.GetProperty("name").GetString() ?? string.Empty,
+                    Count = item.GetProperty("count").GetInt32(),
+                    Link = item.TryGetProperty("link", out var linkProp) ? linkProp.GetString() ?? string.Empty : string.Empty
+                });
+            }
+        }
     }
 
     public async Task<List<Series>> GetSeriesAsync(string? rabbiId = null, CancellationToken ct = default)
@@ -100,54 +163,59 @@ public class MeirDownloaderService : IMeirDownloaderService
     /// </summary>
     private async Task<List<Series>> GetSeriesForRabbiAsync(string rabbiId, CancellationToken ct)
     {
-        var seriesLessonCount = new Dictionary<int, int>();
+        var seriesLessonCount = new ConcurrentDictionary<int, int>();
 
         try
         {
             // Step 1: Paginate through all lessons for this rabbi to collect series IDs and counts
-            int page = 1;
             int totalPages = 1;
+            
+            // Fetch page 1
+            var url1 = $"{BaseApiUrl}/shiurim?rabbis={rabbiId}&per_page=100&page=1&_fields=shiurim-series";
+            var response1 = await GetWithRetryAsync(url1, ct);
 
-            while (page <= totalPages)
+            if (!response1.IsSuccessStatusCode)
             {
-                ct.ThrowIfCancellationRequested();
+                Log($"Failed to fetch lessons for rabbi {rabbiId} page 1: HTTP {(int)response1.StatusCode}");
+                return new List<Series>();
+            }
 
-                var url = $"{BaseApiUrl}/shiurim?rabbis={rabbiId}&per_page=100&page={page}&_fields=shiurim-series";
-                var response = await _httpClient.GetAsync(url, ct);
+            if (response1.Headers.TryGetValues("X-WP-TotalPages", out var totalPagesValues))
+            {
+                int.TryParse(totalPagesValues.FirstOrDefault(), out totalPages);
+            }
 
-                if (!response.IsSuccessStatusCode)
+            var json1 = await response1.Content.ReadAsStringAsync(ct);
+            ProcessSeriesIdsFromJson(json1, seriesLessonCount);
+
+            if (totalPages > 1)
+            {
+                var semaphore = new SemaphoreSlim(MaxConcurrency);
+                var tasks = Enumerable.Range(2, totalPages - 1).Select(async page =>
                 {
-                    System.Diagnostics.Debug.WriteLine($"Failed to fetch lessons for rabbi {rabbiId} page {page}: HTTP {(int)response.StatusCode}");
-                    break;
-                }
-
-                if (page == 1 && response.Headers.TryGetValues("X-WP-TotalPages", out var totalPagesValues))
-                {
-                    int.TryParse(totalPagesValues.FirstOrDefault(), out totalPages);
-                }
-
-                var json = await response.Content.ReadAsStringAsync(ct);
-                var items = JsonSerializer.Deserialize<JsonElement>(json);
-
-                if (items.ValueKind == JsonValueKind.Array)
-                {
-                    foreach (var item in items.EnumerateArray())
+                    await semaphore.WaitAsync(ct);
+                    try
                     {
-                        if (item.TryGetProperty("shiurim-series", out var seriesArray) && seriesArray.ValueKind == JsonValueKind.Array)
+                        var url = $"{BaseApiUrl}/shiurim?rabbis={rabbiId}&per_page=100&page={page}&_fields=shiurim-series";
+                        var response = await GetWithRetryAsync(url, ct);
+
+                        if (response.IsSuccessStatusCode)
                         {
-                            foreach (var seriesId in seriesArray.EnumerateArray())
-                            {
-                                var id = seriesId.GetInt32();
-                                if (seriesLessonCount.ContainsKey(id))
-                                    seriesLessonCount[id]++;
-                                else
-                                    seriesLessonCount[id] = 1;
-                            }
+                            var json = await response.Content.ReadAsStringAsync(ct);
+                            ProcessSeriesIdsFromJson(json, seriesLessonCount);
+                        }
+                        else
+                        {
+                            Log($"Failed to fetch lessons for rabbi {rabbiId} page {page}: HTTP {(int)response.StatusCode}");
                         }
                     }
-                }
+                    finally
+                    {
+                        semaphore.Release();
+                    }
+                });
 
-                page++;
+                await Task.WhenAll(tasks);
             }
         }
         catch (OperationCanceledException)
@@ -156,55 +224,66 @@ public class MeirDownloaderService : IMeirDownloaderService
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"Error fetching lessons for rabbi {rabbiId}: {ex.Message}");
+            Log($"Error fetching lessons for rabbi {rabbiId}: {ex.Message}");
         }
 
-        if (seriesLessonCount.Count == 0)
+        if (seriesLessonCount.IsEmpty)
             return new List<Series>();
 
         // Step 2: Fetch series details for the discovered IDs (in chunks of 100)
-        var allSeries = new List<Series>();
+        var allSeries = new ConcurrentBag<Series>();
         var seriesIds = seriesLessonCount.Keys.ToList();
 
         try
         {
-            for (int i = 0; i < seriesIds.Count; i += 100)
+            var chunks = seriesIds.Chunk(100).ToList();
+            var semaphore = new SemaphoreSlim(MaxConcurrency);
+            
+            var tasks = chunks.Select(async chunk =>
             {
-                ct.ThrowIfCancellationRequested();
-
-                var chunk = seriesIds.Skip(i).Take(100);
-                var includeParam = string.Join(",", chunk);
-                var url = $"{BaseApiUrl}/shiurim-series?include={includeParam}&per_page=100&_fields=id,name,count";
-                var response = await _httpClient.GetAsync(url, ct);
-
-                if (!response.IsSuccessStatusCode)
+                await semaphore.WaitAsync(ct);
+                try
                 {
-                    System.Diagnostics.Debug.WriteLine($"Failed to fetch series details: HTTP {(int)response.StatusCode}");
-                    continue;
-                }
+                    var includeParam = string.Join(",", chunk);
+                    var url = $"{BaseApiUrl}/shiurim-series?include={includeParam}&per_page=100&_fields=id,name,count";
+                    var response = await GetWithRetryAsync(url, ct);
 
-                var json = await response.Content.ReadAsStringAsync(ct);
-                var items = JsonSerializer.Deserialize<JsonElement>(json);
-
-                if (items.ValueKind == JsonValueKind.Array)
-                {
-                    foreach (var item in items.EnumerateArray())
+                    if (response.IsSuccessStatusCode)
                     {
-                        var id = item.GetProperty("id").GetInt32();
-                        var rabbiSpecificCount = seriesLessonCount.ContainsKey(id) ? seriesLessonCount[id] : 0;
+                        var json = await response.Content.ReadAsStringAsync(ct);
+                        var items = JsonSerializer.Deserialize<JsonElement>(json);
 
-                        if (rabbiSpecificCount > 0)
+                        if (items.ValueKind == JsonValueKind.Array)
                         {
-                            allSeries.Add(new Series
+                            foreach (var item in items.EnumerateArray())
                             {
-                                Id = id.ToString(),
-                                Name = WebUtility.HtmlDecode(item.GetProperty("name").GetString() ?? string.Empty),
-                                Count = rabbiSpecificCount
-                            });
+                                var id = item.GetProperty("id").GetInt32();
+                                var rabbiSpecificCount = seriesLessonCount.ContainsKey(id) ? seriesLessonCount[id] : 0;
+
+                                if (rabbiSpecificCount > 0)
+                                {
+                                    allSeries.Add(new Series
+                                    {
+                                        Id = id.ToString(),
+                                        Name = WebUtility.HtmlDecode(item.GetProperty("name").GetString() ?? string.Empty),
+                                        Count = rabbiSpecificCount
+                                    });
+                                }
+                            }
                         }
                     }
+                    else
+                    {
+                        Log($"Failed to fetch series details: HTTP {(int)response.StatusCode}");
+                    }
                 }
-            }
+                finally
+                {
+                    semaphore.Release();
+                }
+            });
+
+            await Task.WhenAll(tasks);
         }
         catch (OperationCanceledException)
         {
@@ -212,11 +291,30 @@ public class MeirDownloaderService : IMeirDownloaderService
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"Error fetching series details: {ex.Message}");
+            Log($"Error fetching series details: {ex.Message}");
         }
 
         // Sort by rabbi-specific lesson count descending
         return allSeries.OrderByDescending(s => s.Count).ToList();
+    }
+
+    private void ProcessSeriesIdsFromJson(string json, ConcurrentDictionary<int, int> seriesLessonCount)
+    {
+        var items = JsonSerializer.Deserialize<JsonElement>(json);
+        if (items.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var item in items.EnumerateArray())
+            {
+                if (item.TryGetProperty("shiurim-series", out var seriesArray) && seriesArray.ValueKind == JsonValueKind.Array)
+                {
+                    foreach (var seriesId in seriesArray.EnumerateArray())
+                    {
+                        var id = seriesId.GetInt32();
+                        seriesLessonCount.AddOrUpdate(id, 1, (key, oldValue) => oldValue + 1);
+                    }
+                }
+            }
+        }
     }
 
     /// <summary>
@@ -224,54 +322,83 @@ public class MeirDownloaderService : IMeirDownloaderService
     /// </summary>
     private async Task<List<Series>> GetAllSeriesAsync(CancellationToken ct)
     {
-        var allSeries = new List<Series>();
+        var allSeries = new ConcurrentBag<Series>();
 
         try
         {
-            int page = 1;
             int totalPages = 1;
+            
+            // Fetch page 1
+            var url1 = $"{BaseApiUrl}/shiurim-series?per_page=100&page=1&hide_empty=true&orderby=count&order=desc&_fields=id,name,count";
+            var response1 = await GetWithRetryAsync(url1, ct);
 
-            while (page <= totalPages)
+            if (!response1.IsSuccessStatusCode)
             {
-                var url = $"{BaseApiUrl}/shiurim-series?per_page=100&page={page}&hide_empty=true&orderby=count&order=desc&_fields=id,name,count";
-                var response = await _httpClient.GetAsync(url, ct);
+                Log($"Failed to fetch series page 1: HTTP {(int)response1.StatusCode}");
+                return new List<Series>();
+            }
 
-                if (!response.IsSuccessStatusCode)
+            if (response1.Headers.TryGetValues("X-WP-TotalPages", out var totalPagesValues))
+            {
+                int.TryParse(totalPagesValues.FirstOrDefault(), out totalPages);
+            }
+
+            var json1 = await response1.Content.ReadAsStringAsync(ct);
+            ProcessSeriesJson(json1, allSeries);
+
+            if (totalPages > 1)
+            {
+                var semaphore = new SemaphoreSlim(MaxConcurrency);
+                var tasks = Enumerable.Range(2, totalPages - 1).Select(async page =>
                 {
-                    System.Diagnostics.Debug.WriteLine($"Failed to fetch series page {page}: HTTP {(int)response.StatusCode}");
-                    break;
-                }
-
-                if (page == 1 && response.Headers.TryGetValues("X-WP-TotalPages", out var totalPagesValues))
-                {
-                    int.TryParse(totalPagesValues.FirstOrDefault(), out totalPages);
-                }
-
-                var json = await response.Content.ReadAsStringAsync(ct);
-                var items = JsonSerializer.Deserialize<JsonElement>(json);
-
-                if (items.ValueKind == JsonValueKind.Array)
-                {
-                    foreach (var item in items.EnumerateArray())
+                    await semaphore.WaitAsync(ct);
+                    try
                     {
-                        allSeries.Add(new Series
-                        {
-                            Id = item.GetProperty("id").GetInt32().ToString(),
-                            Name = WebUtility.HtmlDecode(item.GetProperty("name").GetString() ?? string.Empty),
-                            Count = item.GetProperty("count").GetInt32()
-                        });
-                    }
-                }
+                        var url = $"{BaseApiUrl}/shiurim-series?per_page=100&page={page}&hide_empty=true&orderby=count&order=desc&_fields=id,name,count";
+                        var response = await GetWithRetryAsync(url, ct);
 
-                page++;
+                        if (response.IsSuccessStatusCode)
+                        {
+                            var json = await response.Content.ReadAsStringAsync(ct);
+                            ProcessSeriesJson(json, allSeries);
+                        }
+                        else
+                        {
+                            Log($"Failed to fetch series page {page}: HTTP {(int)response.StatusCode}");
+                        }
+                    }
+                    finally
+                    {
+                        semaphore.Release();
+                    }
+                });
+
+                await Task.WhenAll(tasks);
             }
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"Error fetching series: {ex.Message}");
+            Log($"Error fetching series: {ex.Message}");
         }
 
-        return allSeries;
+        return allSeries.ToList();
+    }
+
+    private void ProcessSeriesJson(string json, ConcurrentBag<Series> collection)
+    {
+        var items = JsonSerializer.Deserialize<JsonElement>(json);
+        if (items.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var item in items.EnumerateArray())
+            {
+                collection.Add(new Series
+                {
+                    Id = item.GetProperty("id").GetInt32().ToString(),
+                    Name = WebUtility.HtmlDecode(item.GetProperty("name").GetString() ?? string.Empty),
+                    Count = item.GetProperty("count").GetInt32()
+                });
+            }
+        }
     }
 
     public async Task<List<Lesson>> GetLessonsAsync(string? rabbiId = null, string? seriesId = null, int page = 1, CancellationToken ct = default)
@@ -288,11 +415,11 @@ public class MeirDownloaderService : IMeirDownloaderService
             if (!string.IsNullOrEmpty(seriesId))
                 url += $"&shiurim-series={seriesId}";
 
-            var response = await _httpClient.GetAsync(url, ct);
+            var response = await GetWithRetryAsync(url, ct);
 
             if (!response.IsSuccessStatusCode)
             {
-                System.Diagnostics.Debug.WriteLine($"Failed to fetch lessons page {page}: HTTP {(int)response.StatusCode}");
+                Log($"Failed to fetch lessons page {page}: HTTP {(int)response.StatusCode}");
                 return lessons;
             }
 
@@ -323,7 +450,7 @@ public class MeirDownloaderService : IMeirDownloaderService
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"Error fetching lessons: {ex.Message}");
+            Log($"Error fetching lessons: {ex.Message}");
         }
 
         return lessons;
@@ -331,70 +458,70 @@ public class MeirDownloaderService : IMeirDownloaderService
 
     public async Task<List<Lesson>> GetAllLessonsAsync(string? rabbiId = null, string? seriesId = null, CancellationToken ct = default)
     {
-        var allLessons = new List<Lesson>();
+        var cacheKey = $"lessons_r{rabbiId}_s{seriesId}";
+        var cached = await _cacheService.GetAsync<List<Lesson>>(cacheKey);
+        if (cached != null) return cached;
+
+        var allLessons = new ConcurrentBag<Lesson>();
 
         try
         {
-            int page = 1;
             int totalPages = 1;
+            
+            // Build base URL
+            var baseUrl = $"{BaseApiUrl}/shiurim?per_page=100&_fields=id,title,date,rabbis,shiurim-series,link";
+            if (!string.IsNullOrEmpty(rabbiId))
+                baseUrl += $"&rabbis={rabbiId}";
+            if (!string.IsNullOrEmpty(seriesId))
+                baseUrl += $"&shiurim-series={seriesId}";
 
-            while (page <= totalPages)
+            // Fetch page 1
+            var url1 = $"{baseUrl}&page=1";
+            var response1 = await GetWithRetryAsync(url1, ct);
+
+            if (!response1.IsSuccessStatusCode)
             {
-                ct.ThrowIfCancellationRequested();
-
-                var url = $"{BaseApiUrl}/shiurim?per_page=100&page={page}&_fields=id,title,date,rabbis,shiurim-series,link";
-
-                if (!string.IsNullOrEmpty(rabbiId))
-                    url += $"&rabbis={rabbiId}";
-
-                if (!string.IsNullOrEmpty(seriesId))
-                    url += $"&shiurim-series={seriesId}";
-
-                var response = await _httpClient.GetAsync(url, ct);
-
-                if (!response.IsSuccessStatusCode)
-                {
-                    System.Diagnostics.Debug.WriteLine($"Failed to fetch lessons page {page}: HTTP {(int)response.StatusCode}");
-                    break;
-                }
-
-                if (page == 1 && response.Headers.TryGetValues("X-WP-TotalPages", out var totalPagesValues))
-                {
-                    int.TryParse(totalPagesValues.FirstOrDefault(), out totalPages);
-                }
-
-                var json = await response.Content.ReadAsStringAsync(ct);
-                var items = JsonSerializer.Deserialize<JsonElement>(json);
-
-                if (items.ValueKind == JsonValueKind.Array)
-                {
-                    foreach (var item in items.EnumerateArray())
-                    {
-                        var id = item.GetProperty("id").GetInt32();
-                        var titleRendered = item.GetProperty("title").GetProperty("rendered").GetString() ?? string.Empty;
-                        var link = item.TryGetProperty("link", out var linkProp) ? linkProp.GetString() ?? string.Empty : string.Empty;
-
-                        allLessons.Add(new Lesson
-                        {
-                            Id = id.ToString(),
-                            Title = WebUtility.HtmlDecode(titleRendered),
-                            RabbiName = "Unknown",
-                            SeriesName = "Unknown",
-                            AudioUrl = $"{AudioBaseUrl}/{id}.mp3",
-                            Link = link,
-                            Date = item.GetProperty("date").GetString() ?? string.Empty,
-                            Duration = 0
-                        });
-                    }
-                }
-
-                page++;
+                Log($"Failed to fetch lessons page 1: HTTP {(int)response1.StatusCode}");
+                return new List<Lesson>();
             }
 
-            // Sort by date ascending (oldest first) so numbering makes chronological sense
-            allLessons = allLessons
-                .OrderBy(l => l.Date)
-                .ToList();
+            if (response1.Headers.TryGetValues("X-WP-TotalPages", out var totalPagesValues))
+            {
+                int.TryParse(totalPagesValues.FirstOrDefault(), out totalPages);
+            }
+
+            var json1 = await response1.Content.ReadAsStringAsync(ct);
+            ProcessLessonsJson(json1, allLessons);
+
+            if (totalPages > 1)
+            {
+                var semaphore = new SemaphoreSlim(MaxConcurrency);
+                var tasks = Enumerable.Range(2, totalPages - 1).Select(async page =>
+                {
+                    await semaphore.WaitAsync(ct);
+                    try
+                    {
+                        var url = $"{baseUrl}&page={page}";
+                        var response = await GetWithRetryAsync(url, ct);
+
+                        if (response.IsSuccessStatusCode)
+                        {
+                            var json = await response.Content.ReadAsStringAsync(ct);
+                            ProcessLessonsJson(json, allLessons);
+                        }
+                        else
+                        {
+                            Log($"Failed to fetch lessons page {page}: HTTP {(int)response.StatusCode}");
+                        }
+                    }
+                    finally
+                    {
+                        semaphore.Release();
+                    }
+                });
+
+                await Task.WhenAll(tasks);
+            }
         }
         catch (OperationCanceledException)
         {
@@ -402,14 +529,58 @@ public class MeirDownloaderService : IMeirDownloaderService
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"Error fetching all lessons: {ex.Message}");
+            Log($"Error fetching all lessons: {ex.Message}");
         }
 
-        return allLessons;
+        // Sort by date ascending (oldest first) so numbering makes chronological sense
+        var result = allLessons.OrderBy(l => l.Date).ToList();
+        
+        if (result.Any())
+        {
+            await _cacheService.SetAsync(cacheKey, result, _defaultCacheExpiration);
+        }
+
+        return result;
+    }
+
+    private void ProcessLessonsJson(string json, ConcurrentBag<Lesson> collection)
+    {
+        var items = JsonSerializer.Deserialize<JsonElement>(json);
+        if (items.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var item in items.EnumerateArray())
+            {
+                var id = item.GetProperty("id").GetInt32();
+                var titleRendered = item.GetProperty("title").GetProperty("rendered").GetString() ?? string.Empty;
+                var link = item.TryGetProperty("link", out var linkProp) ? linkProp.GetString() ?? string.Empty : string.Empty;
+
+                collection.Add(new Lesson
+                {
+                    Id = id.ToString(),
+                    Title = WebUtility.HtmlDecode(titleRendered),
+                    RabbiName = "Unknown",
+                    SeriesName = "Unknown",
+                    AudioUrl = $"{AudioBaseUrl}/{id}.mp3",
+                    Link = link,
+                    Date = item.GetProperty("date").GetString() ?? string.Empty,
+                    Duration = 0
+                });
+            }
+        }
     }
 
     public async IAsyncEnumerable<List<Rabbi>> GetRabbisStreamAsync([EnumeratorCancellation] CancellationToken ct = default)
     {
+        // Check cache first
+        var cacheKey = "rabbis_all";
+        var cached = await _cacheService.GetAsync<List<Rabbi>>(cacheKey);
+        if (cached != null)
+        {
+            yield return cached;
+            yield break;
+        }
+
+        var allRabbis = new List<Rabbi>();
         int page = 1;
         int totalPages = 1;
 
@@ -418,11 +589,11 @@ public class MeirDownloaderService : IMeirDownloaderService
             ct.ThrowIfCancellationRequested();
 
             var url = $"{BaseApiUrl}/rabbis?per_page=100&page={page}&orderby=count&order=desc&_fields=id,name,slug,count,link";
-            var response = await _httpClient.GetAsync(url, ct);
+            var response = await GetWithRetryAsync(url, ct);
 
             if (!response.IsSuccessStatusCode)
             {
-                System.Diagnostics.Debug.WriteLine($"Failed to fetch rabbis page {page}: HTTP {(int)response.StatusCode}");
+                Log($"Failed to fetch rabbis page {page}: HTTP {(int)response.StatusCode}");
                 break;
             }
 
@@ -449,8 +620,14 @@ public class MeirDownloaderService : IMeirDownloaderService
                 }
             }
 
+            allRabbis.AddRange(pageResults);
             yield return pageResults;
             page++;
+        }
+
+        if (allRabbis.Any())
+        {
+            await _cacheService.SetAsync(cacheKey, allRabbis, _defaultCacheExpiration);
         }
     }
 
@@ -474,11 +651,11 @@ public class MeirDownloaderService : IMeirDownloaderService
             ct.ThrowIfCancellationRequested();
 
             var url = $"{BaseApiUrl}/shiurim-series?per_page=100&page={pageNum}&hide_empty=true&orderby=count&order=desc&_fields=id,name,count";
-            var response = await _httpClient.GetAsync(url, ct);
+            var response = await GetWithRetryAsync(url, ct);
 
             if (!response.IsSuccessStatusCode)
             {
-                System.Diagnostics.Debug.WriteLine($"Failed to fetch series page {pageNum}: HTTP {(int)response.StatusCode}");
+                Log($"Failed to fetch series page {pageNum}: HTTP {(int)response.StatusCode}");
                 break;
             }
 
@@ -526,11 +703,11 @@ public class MeirDownloaderService : IMeirDownloaderService
 
             // Fetch one page of lessons
             var url = $"{BaseApiUrl}/shiurim?rabbis={rabbiId}&per_page=100&page={page}&_fields=shiurim-series";
-            var response = await _httpClient.GetAsync(url, ct);
+            var response = await GetWithRetryAsync(url, ct);
 
             if (!response.IsSuccessStatusCode)
             {
-                System.Diagnostics.Debug.WriteLine($"Failed to fetch lessons for rabbi {rabbiId} page {page}: HTTP {(int)response.StatusCode}");
+                Log($"Failed to fetch lessons for rabbi {rabbiId} page {page}: HTTP {(int)response.StatusCode}");
                 break;
             }
 
@@ -593,11 +770,11 @@ public class MeirDownloaderService : IMeirDownloaderService
 
             var ids = string.Join(",", chunk);
             var url = $"{BaseApiUrl}/shiurim-series?include={ids}&per_page=100&_fields=id,name,count";
-            var response = await _httpClient.GetAsync(url, ct);
+            var response = await GetWithRetryAsync(url, ct);
 
             if (!response.IsSuccessStatusCode)
             {
-                System.Diagnostics.Debug.WriteLine($"Failed to fetch series details: HTTP {(int)response.StatusCode}");
+                Log($"Failed to fetch series details: HTTP {(int)response.StatusCode}");
                 continue;
             }
 
@@ -645,7 +822,7 @@ public class MeirDownloaderService : IMeirDownloaderService
                 return string.Empty;
 
             Log($"Resolving audio URL from page: {lessonLink}");
-            var response = await _httpClient.GetAsync(lessonLink, ct);
+            var response = await GetWithRetryAsync(lessonLink, ct);
             if (!response.IsSuccessStatusCode)
             {
                 Log($"Failed to fetch lesson page {lessonLink}: HTTP {(int)response.StatusCode}");
@@ -712,7 +889,11 @@ public class MeirDownloaderService : IMeirDownloaderService
 
             Log($"Downloading lesson '{lesson.Title}' from {lesson.AudioUrl} to {filePath}");
 
-            using var response = await _httpClient.GetAsync(lesson.AudioUrl, HttpCompletionOption.ResponseHeadersRead, ct);
+            // Use retry policy for the initial connection
+            using var response = await _retryPolicy.ExecuteAsync(async token =>
+            {
+                return await _httpClient.GetAsync(lesson.AudioUrl, HttpCompletionOption.ResponseHeadersRead, token);
+            }, ct);
 
             if (!response.IsSuccessStatusCode)
             {
@@ -763,7 +944,7 @@ public class MeirDownloaderService : IMeirDownloaderService
         {
             if (string.IsNullOrEmpty(rabbiLink)) return string.Empty;
 
-            var response = await _httpClient.GetAsync(rabbiLink, ct);
+            var response = await GetWithRetryAsync(rabbiLink, ct);
             if (!response.IsSuccessStatusCode) return string.Empty;
 
             var html = await response.Content.ReadAsStringAsync(ct);
@@ -796,5 +977,14 @@ public class MeirDownloaderService : IMeirDownloaderService
             .Where(c => !invalidChars.Contains(c))
             .ToArray());
         return string.IsNullOrWhiteSpace(sanitized) ? "Unknown" : sanitized;
+    }
+
+    public void Dispose()
+    {
+        if (_cacheService is IDisposable disposableCache)
+        {
+            disposableCache.Dispose();
+        }
+        _httpClient.Dispose();
     }
 }

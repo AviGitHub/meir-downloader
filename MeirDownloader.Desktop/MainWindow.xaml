@@ -13,6 +13,7 @@
         <converters:DownloadStatusToColorConverter x:Key="StatusToColor"/>
         <converters:DownloadStatusToVisibilityConverter x:Key="StatusToVisibility"/>
         <converters:TextToInitialConverter x:Key="TextToInitial"/>
+        <BooleanToVisibilityConverter x:Key="BooleanToVisibilityConverter"/>
     </Window.Resources>
 
     <Grid>
@@ -213,9 +214,15 @@
 
                 <StackPanel Grid.Row="0" Margin="0,0,0,20">
                     <TextBlock Text="רבנים" Style="{StaticResource SectionHeaderStyle}"/>
-                    <!-- Search Box Placeholder -->
-                    <Border Background="#F1F5F9" CornerRadius="6" Padding="10,8">
-                        <TextBlock Text="חפש רב..." Foreground="#94A3B8"/>
+                    <!-- Search Box -->
+                    <Border Background="#F1F5F9" CornerRadius="6" Padding="5">
+                        <TextBox x:Name="SearchTextBox"
+                                 TextChanged="SearchTextBox_TextChanged"
+                                 Background="Transparent"
+                                 BorderThickness="0"
+                                 FontSize="14"
+                                 VerticalContentAlignment="Center"
+                                 Padding="5,0"/>
                     </Border>
                 </StackPanel>
 
@@ -242,6 +249,14 @@
                                         <!-- Image overlay (covers initials when loaded) -->
                                         <Image Source="{Binding AvatarImage}" Stretch="UniformToFill"
                                                Width="40" Height="40"/>
+                                        
+                                        <!-- Loading Indicator -->
+                                        <Grid Visibility="{Binding IsImageLoading, Converter={StaticResource BooleanToVisibilityConverter}}"
+                                              Background="#80FFFFFF">
+                                            <ProgressBar IsIndeterminate="True" Width="20" Height="20"
+                                                         Style="{StaticResource MaterialDesignCircularProgressBar}"
+                                                         Foreground="{StaticResource AccentBrush}"/>
+                                        </Grid>
                                     </Grid>
                                 </Border>
 

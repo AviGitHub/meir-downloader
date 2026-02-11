@@ -44,6 +44,42 @@
         <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
     </Style>
 
+    <!-- Circular Progress Bar Style -->
+    <Style x:Key="MaterialDesignCircularProgressBar" TargetType="ProgressBar">
+        <Setter Property="Foreground" Value="{StaticResource AccentBrush}"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="ProgressBar">
+                    <Viewbox>
+                        <Grid Width="20" Height="20">
+                            <VisualStateManager.VisualStateGroups>
+                                <VisualStateGroup x:Name="CommonStates">
+                                    <VisualState x:Name="Determinate"/>
+                                    <VisualState x:Name="Indeterminate">
+                                        <Storyboard RepeatBehavior="Forever">
+                                            <DoubleAnimation Storyboard.TargetName="Rotation"
+                                                             Storyboard.TargetProperty="Angle"
+                                                             From="0" To="360" Duration="0:0:1"/>
+                                        </Storyboard>
+                                    </VisualState>
+                                </VisualStateGroup>
+                            </VisualStateManager.VisualStateGroups>
+                            <Path Stroke="{TemplateBinding Foreground}"
+                                  StrokeThickness="2"
+                                  StrokeEndLineCap="Round"
+                                  Data="M 10,1 A 9,9 0 1 1 1,10"
+                                  RenderTransformOrigin="0.5,0.5">
+                                <Path.RenderTransform>
+                                    <RotateTransform x:Name="Rotation"/>
+                                </Path.RenderTransform>
+                            </Path>
+                        </Grid>
+                    </Viewbox>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
     <!-- Button Styles -->
     <Style x:Key="ModernButtonStyle" TargetType="Button">
         <Setter Property="Background" Value="{StaticResource AccentBrush}"/>

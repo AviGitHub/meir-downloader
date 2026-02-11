@@ -9,6 +9,7 @@ public class RabbiViewModel : INotifyPropertyChanged
 {
     private BitmapImage? _avatarImage;
     private bool _imageLoaded;
+    private bool _isImageLoading;
 
     public Rabbi Rabbi { get; }
 
@@ -26,6 +27,12 @@ public class RabbiViewModel : INotifyPropertyChanged
 
     public bool HasImage => _avatarImage != null;
     public bool ImageLoaded => _imageLoaded;
+
+    public bool IsImageLoading
+    {
+        get => _isImageLoading;
+        set { _isImageLoading = value; OnPropertyChanged(); }
+    }
 
     public RabbiViewModel(Rabbi rabbi)
     {
