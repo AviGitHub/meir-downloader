@@ -121,33 +121,56 @@ public class DownloadManager
 
             var totalBytes = response.Content.Headers.ContentLength ?? -1L;
             using var contentStream = await response.Content.ReadAsStreamAsync(ct);
-            using var fileStream = new FileStream(filePath, FileMode.Create, FileAccess.Write, FileShare.None, 81920, true);
 
-            var buffer = new byte[81920];
-            long totalRead = 0;
-            int bytesRead;
-            var lastReportTime = DateTime.MinValue;
-
-            // Capture context for progress updates
-            var progressReporter = new Progress<double>(p =>
+            // Use a scoped block so the file stream is closed before ID3 tagging
+            using (var fileStream = new FileStream(filePath, FileMode.Create, FileAccess.Write, FileShare.None, 81920, true))
             {
-                lessonVm.ProgressPercentage = (int)p;
-                lessonVm.StatusText = $"{(int)p}%";
-            });
-            var progress = (IProgress<double>)progressReporter;
+                var buffer = new byte[81920];
+                long totalRead = 0;
+                int bytesRead;
+                var lastReportTime = DateTime.MinValue;
 
-            while ((bytesRead = await contentStream.ReadAsync(buffer, ct)) != 0)
-            {
-                await fileStream.WriteAsync(buffer.AsMemory(0, bytesRead), ct);
-                totalRead += bytesRead;
-
-                var now = DateTime.UtcNow;
-                if (totalBytes > 0 && (now - lastReportTime).TotalMilliseconds > 200) // Throttle to 200ms
+                // Capture context for progress updates
+                var progressReporter = new Progress<double>(p =>
                 {
-                    var percentage = (double)totalRead * 100 / totalBytes;
-                    progress.Report(percentage);
-                    lastReportTime = now;
+                    lessonVm.ProgressPercentage = (int)p;
+                    lessonVm.StatusText = $"{(int)p}%";
+                });
+                var progress = (IProgress<double>)progressReporter;
+
+                while ((bytesRead = await contentStream.ReadAsync(buffer, ct)) != 0)
+                {
+                    await fileStream.WriteAsync(buffer.AsMemory(0, bytesRead), ct);
+                    totalRead += bytesRead;
+
+                    var now = DateTime.UtcNow;
+                    if (totalBytes > 0 && (now - lastReportTime).TotalMilliseconds > 200) // Throttle to 200ms
+                    {
+                        var percentage = (double)totalRead * 100 / totalBytes;
+                        progress.Report(percentage);
+                        lastReportTime = now;
+                    }
                 }
+            } // fileStream is now closed
+
+            // Write ID3 tags (file must be closed first)
+            try
+            {
+                Log($"Writing ID3 tags for '{lessonVm.Title}': Artist='{lessonVm.RabbiName}', Album='{lessonVm.SeriesName}', Track={lessonVm.LessonNumber}");
+                using (var tagFile = TagLib.File.Create(filePath))
+                {
+                    tagFile.Tag.Title = lessonVm.Title;
+                    tagFile.Tag.Performers = new[] { lessonVm.RabbiName };
+                    tagFile.Tag.Album = lessonVm.SeriesName;
+                    tagFile.Tag.Track = (uint)lessonVm.LessonNumber;
+                    tagFile.Save();
+                }
+                Log($"ID3 tags written successfully for '{lessonVm.Title}'");
+            }
+            catch (Exception ex)
+            {
+                // Don't fail the download if tagging fails
+                Log($"ID3 tagging failed for '{lessonVm.Title}': {ex.Message}");
             }
 
             lessonVm.Status = DownloadStatus.Completed;

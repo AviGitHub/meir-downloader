@@ -38,9 +38,35 @@
                     <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
 
-                <StackPanel Grid.Column="0" VerticalAlignment="Center">
-                    <TextBlock Text="מוריד שיעורים" Style="{StaticResource HeaderTextStyle}"/>
-                    <TextBlock Text="הורדת שיעורים ממכון מאיר" Foreground="{StaticResource TextSecondaryBrush}" FontSize="14"/>
+                <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
+                    <StackPanel VerticalAlignment="Center">
+                        <TextBlock Text="מוריד שיעורים" Style="{StaticResource HeaderTextStyle}"/>
+                        <TextBlock Text="הורדת שיעורים ממכון מאיר" Foreground="{StaticResource TextSecondaryBrush}" FontSize="14"/>
+                    </StackPanel>
+                    <Button x:Name="AboutButton" Content="ℹ️ אודות" Click="AboutButton_Click"
+                            Background="Transparent" BorderThickness="0" Cursor="Hand"
+                            Foreground="{StaticResource TextSecondaryBrush}" FontSize="12"
+                            VerticalAlignment="Top" Margin="15,5,0,0" Padding="6,3"
+                            ToolTip="אודות התוכנה">
+                        <Button.Style>
+                            <Style TargetType="Button">
+                                <Setter Property="Template">
+                                    <Setter.Value>
+                                        <ControlTemplate TargetType="Button">
+                                            <Border x:Name="border" Background="Transparent" CornerRadius="4" Padding="6,3" Cursor="Hand">
+                                                <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                            </Border>
+                                            <ControlTemplate.Triggers>
+                                                <Trigger Property="IsMouseOver" Value="True">
+                                                    <Setter TargetName="border" Property="Background" Value="#10000000"/>
+                                                </Trigger>
+                                            </ControlTemplate.Triggers>
+                                        </ControlTemplate>
+                                    </Setter.Value>
+                                </Setter>
+                            </Style>
+                        </Button.Style>
+                    </Button>
                 </StackPanel>
 
                 <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
@@ -192,6 +218,7 @@
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*"/>
                     <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
                 
                 <StackPanel Grid.Column="0" VerticalAlignment="Center">
@@ -200,6 +227,15 @@
                 </StackPanel>
                 
                 <TextBlock x:Name="OverallProgressText" Grid.Column="1" Text="" VerticalAlignment="Bottom" Foreground="{StaticResource TextPrimaryBrush}" Margin="10,0,0,0"/>
+                
+                <TextBlock x:Name="VersionText" Grid.Column="2"
+                           Text="v1.1.0"
+                           FontSize="10"
+                           Opacity="0.4"
+                           Foreground="#888888"
+                           VerticalAlignment="Bottom"
+                           HorizontalAlignment="Left"
+                           Margin="15,0,0,0"/>
             </Grid>
         </Grid>
 

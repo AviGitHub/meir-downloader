@@ -44,6 +44,10 @@ public partial class MainWindow : Window
 
         DownloadPathText.Text = $"תיקיית הורדה: {_downloadPath}";
 
+        // Set version display dynamically from assembly info
+        var version = System.Reflection.Assembly.GetExecutingAssembly().GetName().Version;
+        VersionText.Text = $"v{version?.Major}.{version?.Minor}.{version?.Build}";
+
         LoadRabbis();
     }
 
@@ -508,6 +512,98 @@ public partial class MainWindow : Window
             OverallProgressBar.Value = (double)completed / total * 100;
             OverallProgressText.Text = $"הורדו {completed} מתוך {total} שיעורים";
         }
+    }
+
+    private void AboutButton_Click(object sender, RoutedEventArgs e)
+    {
+        var version = System.Reflection.Assembly.GetExecutingAssembly().GetName().Version;
+        var versionString = $"{version?.Major}.{version?.Minor}.{version?.Build}";
+
+        var aboutWindow = new Window
+        {
+            Title = "אודות",
+            Width = 400,
+            Height = 250,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner,
+            Owner = this,
+            ResizeMode = ResizeMode.NoResize,
+            FlowDirection = FlowDirection.RightToLeft,
+            Background = System.Windows.Media.Brushes.White,
+            FontFamily = new System.Windows.Media.FontFamily("Segoe UI"),
+            Icon = this.Icon
+        };
+
+        var stack = new StackPanel
+        {
+            VerticalAlignment = VerticalAlignment.Center,
+            HorizontalAlignment = HorizontalAlignment.Center,
+            Margin = new Thickness(30)
+        };
+
+        stack.Children.Add(new TextBlock
+        {
+            Text = "מוריד שיעורים",
+            FontSize = 22,
+            FontWeight = FontWeights.Bold,
+            HorizontalAlignment = HorizontalAlignment.Center,
+            Margin = new Thickness(0, 0, 0, 5)
+        });
+
+        stack.Children.Add(new TextBlock
+        {
+            Text = "Meir Downloader",
+            FontSize = 14,
+            Foreground = System.Windows.Media.Brushes.Gray,
+            HorizontalAlignment = HorizontalAlignment.Center,
+            FlowDirection = FlowDirection.LeftToRight,
+            Margin = new Thickness(0, 0, 0, 10)
+        });
+
+        stack.Children.Add(new TextBlock
+        {
+            Text = $"גרסה {versionString}",
+            FontSize = 13,
+            Foreground = System.Windows.Media.Brushes.Gray,
+            HorizontalAlignment = HorizontalAlignment.Center,
+            Margin = new Thickness(0, 0, 0, 15)
+        });
+
+        var linkButton = new Button
+        {
+            Content = "GitHub: AviGitHub/meir-downloader",
+            Cursor = System.Windows.Input.Cursors.Hand,
+            HorizontalAlignment = HorizontalAlignment.Center,
+            Foreground = new System.Windows.Media.SolidColorBrush(
+                (System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString("#1ABC9C")),
+            Background = System.Windows.Media.Brushes.Transparent,
+            BorderThickness = new Thickness(0),
+            FontSize = 13,
+            FlowDirection = FlowDirection.LeftToRight,
+            Padding = new Thickness(5, 3, 5, 3),
+            Margin = new Thickness(0, 0, 0, 20)
+        };
+        linkButton.Click += (_, _) =>
+        {
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = "https://github.com/AviGitHub/meir-downloader",
+                UseShellExecute = true
+            });
+        };
+        stack.Children.Add(linkButton);
+
+        var closeButton = new Button
+        {
+            Content = "סגור",
+            Width = 80,
+            HorizontalAlignment = HorizontalAlignment.Center,
+            Padding = new Thickness(10, 5, 10, 5)
+        };
+        closeButton.Click += (_, _) => aboutWindow.Close();
+        stack.Children.Add(closeButton);
+
+        aboutWindow.Content = stack;
+        aboutWindow.ShowDialog();
     }
 
     protected override void OnClosed(EventArgs e)
