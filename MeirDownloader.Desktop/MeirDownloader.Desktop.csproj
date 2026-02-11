@@ -4,6 +4,10 @@
     <ProjectReference Include="..\MeirDownloader.Core\MeirDownloader.Core.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <PackageReference Include="TagLibSharp" Version="2.3.0" />
+  </ItemGroup>
+
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
     <TargetFramework>net9.0-windows</TargetFramework>
