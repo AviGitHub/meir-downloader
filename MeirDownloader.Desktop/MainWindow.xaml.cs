@@ -93,7 +93,7 @@ public partial class MainWindow : Window
                 var ct = _seriesLoadingCts.Token;
 
                 SeriesLoadingBar.Visibility = Visibility.Visible;
-                StatusText.Text = $"טוען סדרות עבור {rabbi.Name}...";
+                StatusText.Text = $"סורק שיעורים עבור {rabbi.Name}...";
                 _seriesList.Clear();
                 SeriesListBox.ItemsSource = _seriesList;
                 LessonsGrid.ItemsSource = null;
@@ -110,7 +110,7 @@ public partial class MainWindow : Window
                             index++;
                         _seriesList.Insert(index, series);
                     }
-                    StatusText.Text = $"נטענו {_seriesList.Count} סדרות עבור {rabbi.Name}...";
+                    StatusText.Text = $"סורק שיעורים עבור {rabbi.Name}... נמצאו {_seriesList.Count} סדרות";
                 }
 
                 StatusText.Text = $"נטענו {_seriesList.Count} סדרות עבור {rabbi.Name}";

@@ -508,14 +508,13 @@ public class MeirDownloaderService : IMeirDownloaderService
     }
 
     /// <summary>
-    /// Stream series for a specific rabbi. First collects all lesson pages to discover series IDs,
-    /// then yields series details in chunks as they are fetched.
+    /// Stream series for a specific rabbi. Scans lesson pages one at a time and yields
+    /// newly discovered series immediately, so the UI populates incrementally.
     /// </summary>
     private async IAsyncEnumerable<List<Series>> GetSeriesForRabbiStreamAsync(string rabbiId, [EnumeratorCancellation] CancellationToken ct)
     {
-        var seriesLessonCount = new Dictionary<int, int>();
-
-        // Step 1: Paginate through all lessons for this rabbi to collect series IDs and counts
+        var seenSeriesIds = new HashSet<int>();
+        var seriesCountMap = new Dictionary<int, int>(); // seriesId -> lesson count
         int page = 1;
         int totalPages = 1;
 
@@ -523,6 +522,7 @@ public class MeirDownloaderService : IMeirDownloaderService
         {
             ct.ThrowIfCancellationRequested();
 
+            // Fetch one page of lessons
             var url = $"{BaseApiUrl}/shiurim?rabbis={rabbiId}&per_page=100&page={page}&_fields=shiurim-series";
             var response = await _httpClient.GetAsync(url, ct);
 
@@ -532,13 +532,15 @@ public class MeirDownloaderService : IMeirDownloaderService
                 break;
             }
 
-            if (page == 1 && response.Headers.TryGetValues("X-WP-TotalPages", out var totalPagesValues))
+            if (page == 1 && response.Headers.TryGetValues("X-WP-TotalPages", out var tp))
             {
-                int.TryParse(totalPagesValues.FirstOrDefault(), out totalPages);
+                int.TryParse(tp.FirstOrDefault(), out totalPages);
             }
 
             var json = await response.Content.ReadAsStringAsync(ct);
             var items = JsonSerializer.Deserialize<JsonElement>(json);
+
+            var newSeriesIds = new List<int>();
 
             if (items.ValueKind == JsonValueKind.Array)
             {
@@ -546,34 +548,49 @@ public class MeirDownloaderService : IMeirDownloaderService
                 {
                     if (item.TryGetProperty("shiurim-series", out var seriesArray) && seriesArray.ValueKind == JsonValueKind.Array)
                     {
-                        foreach (var seriesId in seriesArray.EnumerateArray())
+                        foreach (var sid in seriesArray.EnumerateArray())
                         {
-                            var id = seriesId.GetInt32();
-                            if (seriesLessonCount.ContainsKey(id))
-                                seriesLessonCount[id]++;
-                            else
-                                seriesLessonCount[id] = 1;
+                            var seriesId = sid.GetInt32();
+                            seriesCountMap[seriesId] = seriesCountMap.GetValueOrDefault(seriesId) + 1;
+
+                            if (seenSeriesIds.Add(seriesId))
+                            {
+                                newSeriesIds.Add(seriesId);
+                            }
                         }
                     }
                 }
             }
 
+            // If we found new series IDs on this page, fetch their details and yield immediately
+            if (newSeriesIds.Count > 0)
+            {
+                var seriesDetails = await FetchSeriesDetailsByIds(newSeriesIds, seriesCountMap, ct);
+                if (seriesDetails.Count > 0)
+                {
+                    yield return seriesDetails;
+                }
+            }
+
             page++;
         }
+    }
 
-        if (seriesLessonCount.Count == 0)
-            yield break;
+    /// <summary>
+    /// Fetch series details (name, count) for a list of series IDs, using the rabbi-specific
+    /// lesson counts from the countMap.
+    /// </summary>
+    private async Task<List<Series>> FetchSeriesDetailsByIds(List<int> seriesIds, Dictionary<int, int> countMap, CancellationToken ct)
+    {
+        var result = new List<Series>();
 
-        // Step 2: Fetch series details for the discovered IDs (in chunks of 100), yielding each chunk
-        var seriesIds = seriesLessonCount.Keys.ToList();
-
-        for (int i = 0; i < seriesIds.Count; i += 100)
+        // Chunk into batches of 100 (WordPress API limit)
+        foreach (var chunk in seriesIds.Chunk(100))
         {
             ct.ThrowIfCancellationRequested();
 
-            var chunk = seriesIds.Skip(i).Take(100);
-            var includeParam = string.Join(",", chunk);
-            var url = $"{BaseApiUrl}/shiurim-series?include={includeParam}&per_page=100&_fields=id,name,count";
+            var ids = string.Join(",", chunk);
+            var url = $"{BaseApiUrl}/shiurim-series?include={ids}&per_page=100&_fields=id,name,count";
             var response = await _httpClient.GetAsync(url, ct);
 
             if (!response.IsSuccessStatusCode)
@@ -584,18 +601,17 @@ public class MeirDownloaderService : IMeirDownloaderService
 
             var json = await response.Content.ReadAsStringAsync(ct);
             var items = JsonSerializer.Deserialize<JsonElement>(json);
-            var chunkResults = new List<Series>();
 
             if (items.ValueKind == JsonValueKind.Array)
             {
                 foreach (var item in items.EnumerateArray())
                 {
                     var id = item.GetProperty("id").GetInt32();
-                    var rabbiSpecificCount = seriesLessonCount.ContainsKey(id) ? seriesLessonCount[id] : 0;
+                    var rabbiSpecificCount = countMap.GetValueOrDefault(id, 0);
 
                     if (rabbiSpecificCount > 0)
                     {
-                        chunkResults.Add(new Series
+                        result.Add(new Series
                         {
                             Id = id.ToString(),
                             Name = WebUtility.HtmlDecode(item.GetProperty("name").GetString() ?? string.Empty),
@@ -604,10 +620,9 @@ public class MeirDownloaderService : IMeirDownloaderService
                     }
                 }
             }
-
-            if (chunkResults.Count > 0)
-                yield return chunkResults;
         }
+
+        return result;
     }
 
     public async Task<string> DownloadLessonAsync(Lesson lesson, string downloadPath, IProgress<DownloadProgress> progress, CancellationToken ct = default)
