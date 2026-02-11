@@ -3,7 +3,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:converters="clr-namespace:MeirDownloader.Desktop.Converters"
         Title="מוריד שיעורים - Meir Downloader" Height="768" Width="1200"
-        Background="{StaticResource BackgroundBrush}"
+        Background="{DynamicResource BackgroundBrush}"
         FlowDirection="RightToLeft"
         WindowStartupLocation="CenterScreen"
         Icon="pack://application:,,,/icon.ico"
@@ -39,22 +39,31 @@
                 </Grid.ColumnDefinitions>
 
                 <StackPanel Grid.Column="0" VerticalAlignment="Center">
-                    <TextBlock Text="מוריד שיעורים" Style="{StaticResource HeaderTextStyle}"/>
-                    <TextBlock Text="הורדת שיעורים ממכון מאיר" Foreground="{StaticResource TextSecondaryBrush}" FontSize="14"/>
+                    <TextBlock Text="מוריד שיעורים" Style="{DynamicResource HeaderTextStyle}"/>
+                    <TextBlock Text="הורדת שיעורים ממכון מאיר" Foreground="{DynamicResource TextSecondaryBrush}" FontSize="14"/>
                 </StackPanel>
 
                 <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
                     <TextBlock x:Name="DownloadPathText" 
                                Text="תיקיית הורדה: ..." 
                                VerticalAlignment="Center" 
-                               Foreground="{StaticResource TextSecondaryBrush}" 
+                               Foreground="{DynamicResource TextSecondaryBrush}" 
                                Margin="0,0,15,0"
                                TextTrimming="CharacterEllipsis" 
                                MaxWidth="300"/>
                     <Button x:Name="ChooseFolderButton" 
                             Content="בחר תיקייה" 
                             Click="ChooseFolderButton_Click"
-                            Style="{StaticResource SecondaryButtonStyle}"/>
+                            Style="{DynamicResource SecondaryButtonStyle}"/>
+                    <Button x:Name="ThemeToggleButton" 
+                            Click="ThemeToggle_Click"
+                            Style="{DynamicResource SecondaryButtonStyle}"
+                            Content="🌙" 
+                            FontSize="18"
+                            Width="40" Height="40"
+                            Padding="0"
+                            ToolTip="Toggle Dark Mode"
+                            Margin="8,0,0,0"/>
                 </StackPanel>
             </Grid>
 
@@ -65,14 +74,14 @@
                     <RowDefinition Height="Auto"/>
                 </Grid.RowDefinitions>
                 
-                <TextBlock Text="סדרות" Style="{StaticResource SectionHeaderStyle}"/>
+                <TextBlock Text="סדרות" Style="{DynamicResource SectionHeaderStyle}"/>
                 
                 <ScrollViewer Grid.Row="1" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled" Padding="0,0,0,10">
                     <ListBox x:Name="SeriesListBox" 
                              SelectionChanged="SeriesListBox_SelectionChanged"
                              Background="Transparent" 
                              BorderThickness="0"
-                             ItemContainerStyle="{StaticResource SeriesListBoxItemStyle}">
+                             ItemContainerStyle="{DynamicResource SeriesListBoxItemStyle}">
                         <ListBox.ItemsPanel>
                             <ItemsPanelTemplate>
                                 <WrapPanel Orientation="Vertical" Height="130"/>
@@ -89,9 +98,9 @@
                                                FontWeight="Bold" 
                                                TextWrapping="Wrap" 
                                                FontSize="14"
-                                               Foreground="{StaticResource TextPrimaryBrush}"/>
+                                               Foreground="{DynamicResource TextPrimaryBrush}"/>
                                     <Border Grid.Row="1" 
-                                            Background="{StaticResource AccentBrush}" 
+                                            Background="{DynamicResource AccentBrush}" 
                                             CornerRadius="10" 
                                             Padding="8,2" 
                                             HorizontalAlignment="Left" 
@@ -109,8 +118,8 @@
                 <!-- Series Loading -->
                 <StackPanel x:Name="SeriesLoadingBar" Grid.Row="1" Visibility="Collapsed"
                             VerticalAlignment="Center" HorizontalAlignment="Center" Margin="20">
-                    <ProgressBar IsIndeterminate="True" Height="4" Width="150" Foreground="{StaticResource AccentBrush}"/>
-                    <TextBlock Text="טוען סדרות..." TextAlignment="Center" Margin="0,8,0,0" Foreground="{StaticResource TextSecondaryBrush}"/>
+                    <ProgressBar IsIndeterminate="True" Height="4" Width="150" Foreground="{DynamicResource AccentBrush}"/>
+                    <TextBlock Text="טוען סדרות..." TextAlignment="Center" Margin="0,8,0,0" Foreground="{DynamicResource TextSecondaryBrush}"/>
                 </StackPanel>
             </Grid>
 
@@ -127,24 +136,24 @@
                         <ColumnDefinition Width="*"/>
                         <ColumnDefinition Width="Auto"/>
                     </Grid.ColumnDefinitions>
-                    <TextBlock Text="שיעורים" Style="{StaticResource SectionHeaderStyle}" Margin="0"/>
+                    <TextBlock Text="שיעורים" Style="{DynamicResource SectionHeaderStyle}" Margin="0"/>
                     
                     <StackPanel Grid.Column="1" Orientation="Horizontal">
                         <Button x:Name="DownloadSeriesButton" Content="הורד סדרה" Click="DownloadSeriesButton_Click"
-                                Style="{StaticResource ModernButtonStyle}" Margin="10,0,0,0" IsEnabled="False"/>
+                                Style="{DynamicResource ModernButtonStyle}" Margin="10,0,0,0" IsEnabled="False"/>
                         <Button x:Name="CancelDownloadButton" Content="בטל הורדה" Click="CancelDownloadButton_Click"
-                                Style="{StaticResource ModernButtonStyle}" Background="{StaticResource ErrorBrush}"
+                                Style="{DynamicResource ModernButtonStyle}" Background="{DynamicResource ErrorBrush}"
                                 Margin="10,0,0,0" IsEnabled="False" Visibility="Collapsed"/>
                         <Button x:Name="OpenDirectoryButton" Content="📂 פתח תיקייה" Click="OpenDirectoryButton_Click"
-                                Style="{StaticResource SecondaryButtonStyle}" Margin="10,0,0,0"
+                                Style="{DynamicResource SecondaryButtonStyle}" Margin="10,0,0,0"
                                 IsEnabled="False" Visibility="Collapsed"
                                 ToolTip="פתח את תיקיית ההורדה"/>
                     </StackPanel>
                 </Grid>
 
-                <Border Grid.Row="1" Background="White" CornerRadius="8" Padding="0" ClipToBounds="True">
+                <Border Grid.Row="1" Background="{DynamicResource SurfaceBrush}" CornerRadius="8" Padding="0" ClipToBounds="True">
                     <Grid>
-                        <DataGrid x:Name="LessonsGrid" Style="{StaticResource ModernDataGridStyle}">
+                        <DataGrid x:Name="LessonsGrid" Style="{DynamicResource ModernDataGridStyle}">
                             <DataGrid.Columns>
                                 <DataGridTextColumn Header="#" Binding="{Binding LessonNumber}" Width="50"/>
                                 <DataGridTextColumn Header="שם השיעור" Binding="{Binding Title}" Width="*"/>
@@ -157,10 +166,11 @@
                                                 <ProgressBar Value="{Binding ProgressPercentage, Mode=OneWay}"
                                                              Maximum="100" Height="6" VerticalAlignment="Bottom"
                                                              Foreground="{Binding Status, Converter={StaticResource StatusToColor}}"
-                                                             Background="#F1F5F9" BorderThickness="0"/>
+                                                             Background="{DynamicResource SearchBoxBrush}" BorderThickness="0"/>
                                                 <TextBlock Text="{Binding StatusText, Mode=OneWay}"
                                                            HorizontalAlignment="Left" VerticalAlignment="Top"
-                                                           FontSize="11" Margin="0,0,0,8"/>
+                                                           FontSize="11" Margin="0,0,0,8"
+                                                           Foreground="{DynamicResource TextPrimaryBrush}"/>
                                             </Grid>
                                         </DataTemplate>
                                     </DataGridTemplateColumn.CellTemplate>
@@ -170,7 +180,7 @@
                                     <DataGridTemplateColumn.CellTemplate>
                                         <DataTemplate>
                                             <Button Content="הורד" Click="DownloadButton_Click"
-                                                    Style="{StaticResource SecondaryButtonStyle}"
+                                                    Style="{DynamicResource SecondaryButtonStyle}"
                                                     Padding="10,4" FontSize="12"
                                                     Visibility="{Binding Status, Converter={StaticResource StatusToVisibility}}"/>
                                         </DataTemplate>
@@ -182,8 +192,8 @@
                         <!-- Lessons Loading -->
                         <StackPanel x:Name="LessonsLoadingBar" Visibility="Collapsed"
                                     VerticalAlignment="Center" HorizontalAlignment="Center">
-                            <ProgressBar IsIndeterminate="True" Height="4" Width="200" Foreground="{StaticResource AccentBrush}"/>
-                            <TextBlock Text="טוען שיעורים..." TextAlignment="Center" Margin="0,8,0,0" Foreground="{StaticResource TextSecondaryBrush}"/>
+                            <ProgressBar IsIndeterminate="True" Height="4" Width="200" Foreground="{DynamicResource AccentBrush}"/>
+                            <TextBlock Text="טוען שיעורים..." TextAlignment="Center" Margin="0,8,0,0" Foreground="{DynamicResource TextSecondaryBrush}"/>
                         </StackPanel>
                     </Grid>
                 </Border>
@@ -199,17 +209,17 @@
                 </Grid.ColumnDefinitions>
                 
                 <StackPanel Grid.Column="0" VerticalAlignment="Center">
-                    <ProgressBar x:Name="OverallProgressBar" Height="4" Foreground="{StaticResource AccentBrush}" Maximum="100" Value="0" Background="#E2E8F0"/>
-                    <TextBlock x:Name="StatusText" Text="מוכן" Foreground="{StaticResource TextSecondaryBrush}" FontSize="12" Margin="0,5,0,0"/>
+                    <ProgressBar x:Name="OverallProgressBar" Height="4" Foreground="{DynamicResource AccentBrush}" Maximum="100" Value="0" Background="{DynamicResource BorderBrush}"/>
+                    <TextBlock x:Name="StatusText" Text="מוכן" Foreground="{DynamicResource TextSecondaryBrush}" FontSize="12" Margin="0,5,0,0"/>
                 </StackPanel>
                 
-                <TextBlock x:Name="OverallProgressText" Grid.Column="1" Text="" VerticalAlignment="Bottom" Foreground="{StaticResource TextPrimaryBrush}" Margin="10,0,0,0"/>
+                <TextBlock x:Name="OverallProgressText" Grid.Column="1" Text="" VerticalAlignment="Bottom" Foreground="{DynamicResource TextPrimaryBrush}" Margin="10,0,0,0"/>
                 
                 <TextBlock x:Name="VersionText" Grid.Column="2"
                            Text="v1.1.0"
                            FontSize="10"
                            Opacity="0.4"
-                           Foreground="#888888"
+                           Foreground="{DynamicResource MutedTextBrush}"
                            VerticalAlignment="Bottom"
                            HorizontalAlignment="Left"
                            Margin="15,0,0,0"/>
@@ -220,12 +230,12 @@
                     <Button.Template>
                         <ControlTemplate TargetType="Button">
                             <TextBlock x:Name="aboutText" Text="{TemplateBinding Content}"
-                                       FontSize="10" Foreground="#888888" Opacity="0.5"
+                                       FontSize="10" Foreground="{DynamicResource MutedTextBrush}" Opacity="0.5"
                                        TextDecorations="Underline" Cursor="Hand"/>
                             <ControlTemplate.Triggers>
                                 <Trigger Property="IsMouseOver" Value="True">
                                     <Setter TargetName="aboutText" Property="Opacity" Value="1.0"/>
-                                    <Setter TargetName="aboutText" Property="Foreground" Value="{StaticResource AccentBrush}"/>
+                                    <Setter TargetName="aboutText" Property="Foreground" Value="{DynamicResource AccentBrush}"/>
                                 </Trigger>
                             </ControlTemplate.Triggers>
                         </ControlTemplate>
@@ -235,7 +245,7 @@
         </Grid>
 
         <!-- Sidebar (Right) -->
-        <Border Grid.Column="1" Background="White" Effect="{StaticResource CardShadow}">
+        <Border Grid.Column="1" Background="{DynamicResource CardBackgroundBrush}" Effect="{DynamicResource CardShadow}">
             <Grid Margin="20">
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto"/>
@@ -244,14 +254,16 @@
                 </Grid.RowDefinitions>
 
                 <StackPanel Grid.Row="0" Margin="0,0,0,20">
-                    <TextBlock Text="רבנים" Style="{StaticResource SectionHeaderStyle}"/>
+                    <TextBlock Text="רבנים" Style="{DynamicResource SectionHeaderStyle}"/>
                     <!-- Search Box -->
-                    <Border Background="#F1F5F9" CornerRadius="6" Padding="5">
+                    <Border Background="{DynamicResource SearchBoxBrush}" CornerRadius="6" Padding="5">
                         <TextBox x:Name="SearchTextBox"
                                  TextChanged="SearchTextBox_TextChanged"
                                  Background="Transparent"
                                  BorderThickness="0"
                                  FontSize="14"
+                                 Foreground="{DynamicResource TextPrimaryBrush}"
+                                 CaretBrush="{DynamicResource TextPrimaryBrush}"
                                  VerticalContentAlignment="Center"
                                  Padding="5,0"/>
                     </Border>
@@ -260,7 +272,7 @@
                 <ListBox x:Name="RabbiListBox" Grid.Row="1"
                          SelectionChanged="RabbiListBox_SelectionChanged"
                          Background="Transparent" BorderThickness="0"
-                         ItemContainerStyle="{StaticResource RabbiListBoxItemStyle}">
+                         ItemContainerStyle="{DynamicResource RabbiListBoxItemStyle}">
                     <ListBox.ItemTemplate>
                         <DataTemplate>
                             <Grid Margin="8,6" ToolTip="{Binding Name}">
@@ -271,11 +283,11 @@
 
                                 <!-- Avatar Image (with fallback to initials) -->
                                 <Border Grid.Column="0" Width="40" Height="40" CornerRadius="20"
-                                        ClipToBounds="True" Background="#E8F5E9">
+                                        ClipToBounds="True" Background="{DynamicResource AvatarBackgroundBrush}">
                                     <Grid>
                                         <!-- Fallback: Initial letter -->
                                         <TextBlock Text="{Binding Name, Converter={StaticResource TextToInitial}}"
-                                                   FontSize="16" FontWeight="Bold" Foreground="#1ABC9C"
+                                                   FontSize="16" FontWeight="Bold" Foreground="{DynamicResource AccentBrush}"
                                                    HorizontalAlignment="Center" VerticalAlignment="Center"/>
                                         <!-- Image overlay (covers initials when loaded) -->
                                         <Image Source="{Binding AvatarImage}" Stretch="UniformToFill"
@@ -283,10 +295,10 @@
                                         
                                         <!-- Loading Indicator -->
                                         <Grid Visibility="{Binding IsImageLoading, Converter={StaticResource BooleanToVisibilityConverter}}"
-                                              Background="#80FFFFFF">
+                                              Background="{DynamicResource OverlayBrush}">
                                             <ProgressBar IsIndeterminate="True" Width="20" Height="20"
-                                                         Style="{StaticResource MaterialDesignCircularProgressBar}"
-                                                         Foreground="{StaticResource AccentBrush}"/>
+                                                         Style="{DynamicResource MaterialDesignCircularProgressBar}"
+                                                         Foreground="{DynamicResource AccentBrush}"/>
                                         </Grid>
                                     </Grid>
                                 </Border>
@@ -294,8 +306,8 @@
                                 <!-- Name and count -->
                                 <StackPanel Grid.Column="1" VerticalAlignment="Center" Margin="10,0,0,0">
                                     <TextBlock Text="{Binding Name}" FontSize="13" FontWeight="SemiBold"
-                                               Foreground="#2C3E50" TextTrimming="CharacterEllipsis"/>
-                                    <TextBlock FontSize="11" Foreground="#95A5A6">
+                                               Foreground="{DynamicResource TextPrimaryBrush}" TextTrimming="CharacterEllipsis"/>
+                                    <TextBlock FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}">
                                         <Run Text="{Binding Count, Mode=OneWay}"/>
                                         <Run Text=" שיעורים"/>
                                     </TextBlock>
@@ -308,12 +320,12 @@
                 <!-- Rabbi Loading -->
                 <StackPanel x:Name="RabbiLoadingBar" Grid.Row="1" Visibility="Collapsed"
                             VerticalAlignment="Center" HorizontalAlignment="Center">
-                    <ProgressBar IsIndeterminate="True" Height="4" Width="100" Foreground="{StaticResource AccentBrush}"/>
-                    <TextBlock Text="טוען..." TextAlignment="Center" Margin="0,8,0,0" Foreground="{StaticResource TextSecondaryBrush}"/>
+                    <ProgressBar IsIndeterminate="True" Height="4" Width="100" Foreground="{DynamicResource AccentBrush}"/>
+                    <TextBlock Text="טוען..." TextAlignment="Center" Margin="0,8,0,0" Foreground="{DynamicResource TextSecondaryBrush}"/>
                 </StackPanel>
 
                 <Button Grid.Row="2" Content="טען מחדש" Click="RefreshButton_Click" 
-                        Style="{StaticResource SecondaryButtonStyle}" Margin="0,20,0,0"/>
+                        Style="{DynamicResource SecondaryButtonStyle}" Margin="0,20,0,0"/>
             </Grid>
         </Border>
     </Grid>
