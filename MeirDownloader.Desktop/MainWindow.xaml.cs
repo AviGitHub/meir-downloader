@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Threading;
@@ -503,6 +504,28 @@ public partial class MainWindow : Window
 
         DownloadSeriesButton.IsEnabled = hasSeriesSelected && !_isDownloading;
         DownloadAllButton.IsEnabled = hasLessons && !_isDownloading;
+
+        // Show "Open Directory" button when a series is selected
+        var selectedRabbi = RabbiListBox.SelectedItem as RabbiViewModel;
+        var selectedSeries = SeriesListBox.SelectedItem as Series;
+        if (selectedRabbi != null && selectedSeries != null)
+        {
+            var seriesDir = Path.Combine(
+                _downloadPath,
+                SanitizeFileName(selectedRabbi.Rabbi.Name),
+                SanitizeFileName(selectedSeries.Name)
+            );
+            var dirExists = Directory.Exists(seriesDir);
+            OpenDirectoryButton.Visibility = Visibility.Visible;
+            OpenDirectoryButton.IsEnabled = dirExists;
+            OpenDirectoryButton.ToolTip = dirExists
+                ? "פתח את תיקיית ההורדה"
+                : "התיקייה עדיין לא קיימת";
+        }
+        else
+        {
+            OpenDirectoryButton.Visibility = Visibility.Collapsed;
+        }
     }
 
     private void UpdateOverallProgress(int completed, int total)
@@ -592,18 +615,89 @@ public partial class MainWindow : Window
         };
         stack.Children.Add(linkButton);
 
+        var accentColor = (System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString("#1ABC9C");
+        var accentBrush = new System.Windows.Media.SolidColorBrush(accentColor);
+
         var closeButton = new Button
         {
             Content = "סגור",
-            Width = 80,
+            Width = 100,
             HorizontalAlignment = HorizontalAlignment.Center,
-            Padding = new Thickness(10, 5, 10, 5)
+            Padding = new Thickness(10, 6, 10, 6),
+            FontSize = 13,
+            Cursor = System.Windows.Input.Cursors.Hand,
+            Background = System.Windows.Media.Brushes.White,
+            Foreground = accentBrush,
+            BorderBrush = accentBrush,
+            BorderThickness = new Thickness(1.5),
         };
         closeButton.Click += (_, _) => aboutWindow.Close();
         stack.Children.Add(closeButton);
 
         aboutWindow.Content = stack;
         aboutWindow.ShowDialog();
+    }
+
+    private void OpenDirectoryButton_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            var selectedRabbi = RabbiListBox.SelectedItem as RabbiViewModel;
+            var selectedSeries = SeriesListBox.SelectedItem as Series;
+
+            if (selectedRabbi == null || selectedSeries == null) return;
+
+            var seriesDir = Path.Combine(
+                _downloadPath,
+                SanitizeFileName(selectedRabbi.Rabbi.Name),
+                SanitizeFileName(selectedSeries.Name)
+            );
+
+            if (Directory.Exists(seriesDir))
+            {
+                Process.Start(new ProcessStartInfo
+                {
+                    FileName = seriesDir,
+                    UseShellExecute = true
+                });
+            }
+            else
+            {
+                // Try opening the rabbi directory if series dir doesn't exist
+                var rabbiDir = Path.Combine(_downloadPath, SanitizeFileName(selectedRabbi.Rabbi.Name));
+                if (Directory.Exists(rabbiDir))
+                {
+                    Process.Start(new ProcessStartInfo
+                    {
+                        FileName = rabbiDir,
+                        UseShellExecute = true
+                    });
+                }
+                else
+                {
+                    // Open the base download path
+                    if (Directory.Exists(_downloadPath))
+                    {
+                        Process.Start(new ProcessStartInfo
+                        {
+                            FileName = _downloadPath,
+                            UseShellExecute = true
+                        });
+                    }
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            StatusText.Text = $"שגיאה בפתיחת תיקייה: {ex.Message}";
+        }
+    }
+
+    private static string SanitizeFileName(string fileName)
+    {
+        var invalidChars = Path.GetInvalidFileNameChars();
+        var sanitized = new string(fileName.Where(c => !invalidChars.Contains(c)).ToArray());
+        return string.IsNullOrWhiteSpace(sanitized) ? "Unknown" : sanitized;
     }
 
     protected override void OnClosed(EventArgs e)
