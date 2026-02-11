@@ -11,6 +11,7 @@ public interface IMeirDownloaderService
     Task<string> DownloadLessonAsync(Lesson lesson, string downloadPath, IProgress<DownloadProgress> progress, CancellationToken ct = default);
     Task<string> DownloadLessonAsync(Lesson lesson, string downloadPath, int index, IProgress<DownloadProgress> progress, CancellationToken ct = default);
     Task<string> ResolveAudioUrlAsync(string lessonLink, CancellationToken ct = default);
+    Task<string> GetRabbiImageUrlAsync(string rabbiLink, CancellationToken ct = default);
 
     // Streaming methods - yield results page by page for incremental UI updates
     IAsyncEnumerable<List<Rabbi>> GetRabbisStreamAsync(CancellationToken ct = default);

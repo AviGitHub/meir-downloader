@@ -42,7 +42,7 @@ public class MeirDownloaderService : IMeirDownloaderService
 
             while (page <= totalPages)
             {
-                var url = $"{BaseApiUrl}/rabbis?per_page=100&page={page}&orderby=count&order=desc&_fields=id,name,slug,count";
+                var url = $"{BaseApiUrl}/rabbis?per_page=100&page={page}&orderby=count&order=desc&_fields=id,name,slug,count,link";
                 var response = await _httpClient.GetAsync(url, ct);
 
                 if (!response.IsSuccessStatusCode)
@@ -67,7 +67,8 @@ public class MeirDownloaderService : IMeirDownloaderService
                         {
                             Id = item.GetProperty("id").GetInt32().ToString(),
                             Name = item.GetProperty("name").GetString() ?? string.Empty,
-                            Count = item.GetProperty("count").GetInt32()
+                            Count = item.GetProperty("count").GetInt32(),
+                            Link = item.TryGetProperty("link", out var linkProp) ? linkProp.GetString() ?? string.Empty : string.Empty
                         });
                     }
                 }
@@ -416,7 +417,7 @@ public class MeirDownloaderService : IMeirDownloaderService
         {
             ct.ThrowIfCancellationRequested();
 
-            var url = $"{BaseApiUrl}/rabbis?per_page=100&page={page}&orderby=count&order=desc&_fields=id,name,slug,count";
+            var url = $"{BaseApiUrl}/rabbis?per_page=100&page={page}&orderby=count&order=desc&_fields=id,name,slug,count,link";
             var response = await _httpClient.GetAsync(url, ct);
 
             if (!response.IsSuccessStatusCode)
@@ -442,7 +443,8 @@ public class MeirDownloaderService : IMeirDownloaderService
                     {
                         Id = item.GetProperty("id").GetInt32().ToString(),
                         Name = item.GetProperty("name").GetString() ?? string.Empty,
-                        Count = item.GetProperty("count").GetInt32()
+                        Count = item.GetProperty("count").GetInt32(),
+                        Link = item.TryGetProperty("link", out var linkProp) ? linkProp.GetString() ?? string.Empty : string.Empty
                     });
                 }
             }
@@ -752,6 +754,38 @@ public class MeirDownloaderService : IMeirDownloaderService
         {
             Log($"Download error for '{lesson.Title}': {ex.Message}");
             throw new Exception($"Failed to download lesson: {ex.Message}", ex);
+        }
+    }
+
+    public async Task<string> GetRabbiImageUrlAsync(string rabbiLink, CancellationToken ct = default)
+    {
+        try
+        {
+            if (string.IsNullOrEmpty(rabbiLink)) return string.Empty;
+
+            var response = await _httpClient.GetAsync(rabbiLink, ct);
+            if (!response.IsSuccessStatusCode) return string.Empty;
+
+            var html = await response.Content.ReadAsStringAsync(ct);
+
+            // Strategy 1: Look for jet-listing-dynamic-image
+            var match = Regex.Match(html,
+                @"jet-listing-dynamic-image[^>]*>\s*<img[^>]+src=""([^""]+)""",
+                RegexOptions.IgnoreCase);
+            if (match.Success) return match.Groups[1].Value;
+
+            // Strategy 2: Look for thumbnailUrl in Yoast JSON-LD
+            match = Regex.Match(html,
+                @"""thumbnailUrl""\s*:\s*""([^""]+)""",
+                RegexOptions.IgnoreCase);
+            if (match.Success) return match.Groups[1].Value;
+
+            return string.Empty;
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"Error getting rabbi image: {ex.Message}");
+            return string.Empty;
         }
     }
 

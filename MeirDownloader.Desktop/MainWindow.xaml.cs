@@ -4,6 +4,7 @@ using System.Collections.ObjectModel;
 using System.IO;
 using System.Linq;
 using System.Threading;
+using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using MeirDownloader.Core.Models;
@@ -17,13 +18,15 @@ public partial class MainWindow : Window
 {
     private readonly IMeirDownloaderService _downloaderService;
     private readonly DownloadManager _downloadManager;
+    private readonly ImageCacheService _imageCacheService = new();
     private string _downloadPath;
     private CancellationTokenSource? _loadingCts;
     private CancellationTokenSource? _rabbiLoadingCts;
     private CancellationTokenSource? _seriesLoadingCts;
+    private CancellationTokenSource? _imageLoadingCts;
     private bool _isDownloading;
     private List<LessonViewModel>? _currentLessons;
-    private readonly ObservableCollection<Rabbi> _rabbis = new();
+    private readonly ObservableCollection<RabbiViewModel> _rabbiViewModels = new();
     private readonly ObservableCollection<Series> _seriesList = new();
 
     public MainWindow()
@@ -48,24 +51,29 @@ public partial class MainWindow : Window
         try
         {
             _rabbiLoadingCts?.Cancel();
+            _imageLoadingCts?.Cancel();
             _rabbiLoadingCts = new CancellationTokenSource();
+            _imageLoadingCts = new CancellationTokenSource();
             var ct = _rabbiLoadingCts.Token;
 
             RabbiLoadingBar.Visibility = Visibility.Visible;
-            _rabbis.Clear();
-            RabbiListBox.ItemsSource = _rabbis;
+            _rabbiViewModels.Clear();
+            RabbiListBox.ItemsSource = _rabbiViewModels;
             StatusText.Text = "טוען רבנים...";
 
             await foreach (var page in _downloaderService.GetRabbisStreamAsync(ct))
             {
                 foreach (var rabbi in page)
                 {
-                    _rabbis.Add(rabbi);
+                    _rabbiViewModels.Add(new RabbiViewModel(rabbi));
                 }
-                StatusText.Text = $"נטענו {_rabbis.Count} רבנים...";
+                StatusText.Text = $"נטענו {_rabbiViewModels.Count} רבנים...";
             }
 
-            StatusText.Text = $"נטענו {_rabbis.Count} רבנים";
+            StatusText.Text = $"נטענו {_rabbiViewModels.Count} רבנים";
+
+            // Fire-and-forget image loading
+            _ = LoadRabbiImagesAsync(_imageLoadingCts.Token);
         }
         catch (OperationCanceledException)
         {
@@ -82,10 +90,54 @@ public partial class MainWindow : Window
         }
     }
 
+    private async Task LoadRabbiImagesAsync(CancellationToken ct)
+    {
+        var semaphore = new SemaphoreSlim(3);
+        var tasks = _rabbiViewModels.ToList().Select(async rabbiVm =>
+        {
+            if (rabbiVm.ImageLoaded) return;
+            await semaphore.WaitAsync(ct);
+            try
+            {
+                if (string.IsNullOrEmpty(rabbiVm.Rabbi.ImageUrl))
+                {
+                    var imageUrl = await _downloaderService.GetRabbiImageUrlAsync(rabbiVm.Link, ct);
+                    rabbiVm.Rabbi.ImageUrl = imageUrl;
+                }
+
+                if (!string.IsNullOrEmpty(rabbiVm.Rabbi.ImageUrl))
+                {
+                    var image = await _imageCacheService.GetImageAsync(rabbiVm.Rabbi.ImageUrl, rabbiVm.Id, ct);
+                    if (image != null)
+                    {
+                        await Application.Current.Dispatcher.InvokeAsync(() =>
+                        {
+                            rabbiVm.AvatarImage = image;
+                        });
+                    }
+                }
+                rabbiVm.MarkImageLoaded();
+            }
+            catch (OperationCanceledException) { }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Error loading image for {rabbiVm.Name}: {ex.Message}");
+                rabbiVm.MarkImageLoaded();
+            }
+            finally
+            {
+                semaphore.Release();
+            }
+        });
+
+        await Task.WhenAll(tasks);
+    }
+
     private async void RabbiListBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
-        if (RabbiListBox.SelectedItem is Rabbi rabbi)
+        if (RabbiListBox.SelectedItem is RabbiViewModel rabbiVm)
         {
+            var rabbi = rabbiVm.Rabbi;
             try
             {
                 _seriesLoadingCts?.Cancel();
@@ -132,8 +184,9 @@ public partial class MainWindow : Window
 
     private async void SeriesListBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
-        if (SeriesListBox.SelectedItem is Series series && RabbiListBox.SelectedItem is Rabbi rabbi)
+        if (SeriesListBox.SelectedItem is Series series && RabbiListBox.SelectedItem is RabbiViewModel rabbiVm)
         {
+            var rabbi = rabbiVm.Rabbi;
             try
             {
                 LessonsLoadingBar.Visibility = Visibility.Visible;
@@ -189,7 +242,8 @@ public partial class MainWindow : Window
     {
         _rabbiLoadingCts?.Cancel();
         _seriesLoadingCts?.Cancel();
-        _rabbis.Clear();
+        _imageLoadingCts?.Cancel();
+        _rabbiViewModels.Clear();
         _seriesList.Clear();
         RabbiListBox.ItemsSource = null;
         SeriesListBox.ItemsSource = null;
@@ -235,11 +289,13 @@ public partial class MainWindow : Window
 
     private async void DownloadSeriesButton_Click(object sender, RoutedEventArgs e)
     {
-        if (RabbiListBox.SelectedItem is not Rabbi rabbi || SeriesListBox.SelectedItem is not Series series)
+        if (RabbiListBox.SelectedItem is not RabbiViewModel rabbiVm || SeriesListBox.SelectedItem is not Series series)
         {
             MessageBox.Show("אנא בחר רב וסדרה להורדה.", "בחירה חסרה", MessageBoxButton.OK, MessageBoxImage.Warning);
             return;
         }
+
+        var rabbi = rabbiVm.Rabbi;
 
         if (_isDownloading)
         {
@@ -414,7 +470,7 @@ public partial class MainWindow : Window
     private void UpdateDownloadButtonStates()
     {
         bool hasLessons = _currentLessons != null && _currentLessons.Count > 0;
-        bool hasSeriesSelected = SeriesListBox.SelectedItem is Series && RabbiListBox.SelectedItem is Rabbi;
+        bool hasSeriesSelected = SeriesListBox.SelectedItem is Series && RabbiListBox.SelectedItem is RabbiViewModel;
 
         DownloadSeriesButton.IsEnabled = hasSeriesSelected && !_isDownloading;
         DownloadAllButton.IsEnabled = hasLessons && !_isDownloading;

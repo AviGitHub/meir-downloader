@@ -12,7 +12,7 @@
     <Window.Resources>
         <converters:DownloadStatusToColorConverter x:Key="StatusToColor"/>
         <converters:DownloadStatusToVisibilityConverter x:Key="StatusToVisibility"/>
-        <converters:TextToInitialConverter x:Key="TextToInitialConverter"/>
+        <converters:TextToInitialConverter x:Key="TextToInitial"/>
     </Window.Resources>
 
     <Grid>
@@ -225,22 +225,34 @@
                          ItemContainerStyle="{StaticResource RabbiListBoxItemStyle}">
                     <ListBox.ItemTemplate>
                         <DataTemplate>
-                            <Grid>
+                            <Grid Margin="8,6" ToolTip="{Binding Name}">
                                 <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="44"/>
                                     <ColumnDefinition Width="*"/>
                                 </Grid.ColumnDefinitions>
-                                
-                                <!-- Avatar Placeholder -->
-                                <Border Grid.Column="0" Width="40" Height="40" CornerRadius="20" Background="#E2E8F0" Margin="0,0,10,0">
-                                    <TextBlock Text="{Binding Name, Converter={StaticResource TextToInitialConverter}}"
-                                               HorizontalAlignment="Center" VerticalAlignment="Center"
-                                               FontWeight="Bold" Foreground="{StaticResource TextSecondaryBrush}"/>
+
+                                <!-- Avatar Image (with fallback to initials) -->
+                                <Border Grid.Column="0" Width="40" Height="40" CornerRadius="20"
+                                        ClipToBounds="True" Background="#E8F5E9">
+                                    <Grid>
+                                        <!-- Fallback: Initial letter -->
+                                        <TextBlock Text="{Binding Name, Converter={StaticResource TextToInitial}}"
+                                                   FontSize="16" FontWeight="Bold" Foreground="#1ABC9C"
+                                                   HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                        <!-- Image overlay (covers initials when loaded) -->
+                                        <Image Source="{Binding AvatarImage}" Stretch="UniformToFill"
+                                               Width="40" Height="40"/>
+                                    </Grid>
                                 </Border>
-                                
-                                <StackPanel Grid.Column="1" VerticalAlignment="Center">
-                                    <TextBlock Text="{Binding Name}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
-                                    <TextBlock Text="{Binding Count, StringFormat='{}{0} שיעורים'}" FontSize="12" Foreground="{StaticResource TextSecondaryBrush}"/>
+
+                                <!-- Name and count -->
+                                <StackPanel Grid.Column="1" VerticalAlignment="Center" Margin="10,0,0,0">
+                                    <TextBlock Text="{Binding Name}" FontSize="13" FontWeight="SemiBold"
+                                               Foreground="#2C3E50" TextTrimming="CharacterEllipsis"/>
+                                    <TextBlock FontSize="11" Foreground="#95A5A6">
+                                        <Run Text="{Binding Count, Mode=OneWay}"/>
+                                        <Run Text=" שיעורים"/>
+                                    </TextBlock>
                                 </StackPanel>
                             </Grid>
                         </DataTemplate>
