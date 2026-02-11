@@ -148,8 +148,9 @@
                                                      Maximum="100" Height="22"
                                                      Foreground="{Binding Status, Converter={StaticResource StatusToColor}}"/>
                                         <TextBlock Text="{Binding StatusText, Mode=OneWay}"
-                                                   HorizontalAlignment="Center" VerticalAlignment="Center"
-                                                   FontSize="11" FontWeight="SemiBold"/>
+                                                    ToolTip="{Binding StatusText, Mode=OneWay}"
+                                                    HorizontalAlignment="Center" VerticalAlignment="Center"
+                                                    FontSize="11" FontWeight="SemiBold"/>
                                     </Grid>
                                 </DataTemplate>
                             </DataGridTemplateColumn.CellTemplate>

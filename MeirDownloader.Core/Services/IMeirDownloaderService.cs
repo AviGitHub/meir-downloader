@@ -10,4 +10,5 @@ public interface IMeirDownloaderService
     Task<List<Lesson>> GetAllLessonsAsync(string? rabbiId = null, string? seriesId = null, CancellationToken ct = default);
     Task<string> DownloadLessonAsync(Lesson lesson, string downloadPath, IProgress<DownloadProgress> progress, CancellationToken ct = default);
     Task<string> DownloadLessonAsync(Lesson lesson, string downloadPath, int index, IProgress<DownloadProgress> progress, CancellationToken ct = default);
+    Task<string> ResolveAudioUrlAsync(string lessonLink, CancellationToken ct = default);
 }

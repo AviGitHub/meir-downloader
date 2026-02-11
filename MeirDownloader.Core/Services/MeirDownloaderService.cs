@@ -1,6 +1,7 @@
 using MeirDownloader.Core.Models;
 using System.Net;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 
 namespace MeirDownloader.Core.Services;
 
@@ -14,6 +15,19 @@ public class MeirDownloaderService : IMeirDownloaderService
     {
         _httpClient = new HttpClient();
         _httpClient.DefaultRequestHeaders.Add("User-Agent", "MeirDownloader/2.0");
+    }
+
+    private static void Log(string message)
+    {
+        System.Diagnostics.Debug.WriteLine($"[MeirDownloader] {message}");
+        try
+        {
+            var logPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "MeirDownloader", "download.log");
+            Directory.CreateDirectory(Path.GetDirectoryName(logPath)!);
+            File.AppendAllText(logPath, $"{DateTime.Now:yyyy-MM-dd HH:mm:ss} {message}{Environment.NewLine}");
+        }
+        catch { }
     }
 
     public async Task<List<Rabbi>> GetRabbisAsync(CancellationToken ct = default)
@@ -289,6 +303,7 @@ public class MeirDownloaderService : IMeirDownloaderService
                 {
                     var id = item.GetProperty("id").GetInt32();
                     var titleRendered = item.GetProperty("title").GetProperty("rendered").GetString() ?? string.Empty;
+                    var link = item.TryGetProperty("link", out var linkProp) ? linkProp.GetString() ?? string.Empty : string.Empty;
 
                     lessons.Add(new Lesson
                     {
@@ -297,6 +312,7 @@ public class MeirDownloaderService : IMeirDownloaderService
                         RabbiName = "Unknown",
                         SeriesName = "Unknown",
                         AudioUrl = $"{AudioBaseUrl}/{id}.mp3",
+                        Link = link,
                         Date = item.GetProperty("date").GetString() ?? string.Empty,
                         Duration = 0
                     });
@@ -354,6 +370,7 @@ public class MeirDownloaderService : IMeirDownloaderService
                     {
                         var id = item.GetProperty("id").GetInt32();
                         var titleRendered = item.GetProperty("title").GetProperty("rendered").GetString() ?? string.Empty;
+                        var link = item.TryGetProperty("link", out var linkProp) ? linkProp.GetString() ?? string.Empty : string.Empty;
 
                         allLessons.Add(new Lesson
                         {
@@ -362,6 +379,7 @@ public class MeirDownloaderService : IMeirDownloaderService
                             RabbiName = "Unknown",
                             SeriesName = "Unknown",
                             AudioUrl = $"{AudioBaseUrl}/{id}.mp3",
+                            Link = link,
                             Date = item.GetProperty("date").GetString() ?? string.Empty,
                             Duration = 0
                         });
@@ -398,6 +416,56 @@ public class MeirDownloaderService : IMeirDownloaderService
         return await DownloadLessonInternalAsync(lesson, downloadPath, index, progress, ct);
     }
 
+    public async Task<string> ResolveAudioUrlAsync(string lessonLink, CancellationToken ct = default)
+    {
+        try
+        {
+            if (string.IsNullOrEmpty(lessonLink))
+                return string.Empty;
+
+            Log($"Resolving audio URL from page: {lessonLink}");
+            var response = await _httpClient.GetAsync(lessonLink, ct);
+            if (!response.IsSuccessStatusCode)
+            {
+                Log($"Failed to fetch lesson page {lessonLink}: HTTP {(int)response.StatusCode}");
+                return string.Empty;
+            }
+
+            var html = await response.Content.ReadAsStringAsync(ct);
+
+            // Look for audio URL in the HTML - multiple patterns
+            // Pattern 1: <audio ... src="https://mp3.meirtv.co.il/...mp3">
+            var match = Regex.Match(html,
+                @"https?://mp3\.meirtv\.co\.il[^""'\s<>]+\.mp3",
+                RegexOptions.IgnoreCase);
+
+            if (match.Success)
+            {
+                Log($"Resolved audio URL (meirtv pattern): {match.Value}");
+                return match.Value;
+            }
+
+            // Pattern 2: Any .mp3 URL on the page
+            match = Regex.Match(html,
+                @"https?://[^""'\s<>]+\.mp3",
+                RegexOptions.IgnoreCase);
+
+            if (match.Success)
+            {
+                Log($"Resolved audio URL (generic mp3 pattern): {match.Value}");
+                return match.Value;
+            }
+
+            Log($"No audio URL found on page {lessonLink}");
+            return string.Empty;
+        }
+        catch (Exception ex)
+        {
+            Log($"Error resolving audio URL for {lessonLink}: {ex.Message}");
+            return string.Empty;
+        }
+    }
+
     private async Task<string> DownloadLessonInternalAsync(Lesson lesson, string downloadPath, int? index, IProgress<DownloadProgress> progress, CancellationToken ct)
     {
         if (string.IsNullOrEmpty(lesson.AudioUrl))
@@ -421,10 +489,15 @@ public class MeirDownloaderService : IMeirDownloaderService
 
             var filePath = Path.Combine(seriesDir, fileName);
 
+            Log($"Downloading lesson '{lesson.Title}' from {lesson.AudioUrl} to {filePath}");
+
             using var response = await _httpClient.GetAsync(lesson.AudioUrl, HttpCompletionOption.ResponseHeadersRead, ct);
 
             if (!response.IsSuccessStatusCode)
+            {
+                Log($"Download failed for '{lesson.Title}': HTTP {(int)response.StatusCode}");
                 throw new Exception($"Failed to download audio: HTTP {(int)response.StatusCode}");
+            }
 
             var totalBytes = response.Content.Headers.ContentLength ?? -1L;
             using var contentStream = await response.Content.ReadAsStreamAsync(ct);
@@ -449,6 +522,7 @@ public class MeirDownloaderService : IMeirDownloaderService
                 });
             }
 
+            Log($"Download complete for '{lesson.Title}': {filePath}");
             return filePath;
         }
         catch (OperationCanceledException)
@@ -457,6 +531,7 @@ public class MeirDownloaderService : IMeirDownloaderService
         }
         catch (Exception ex)
         {
+            Log($"Download error for '{lesson.Title}': {ex.Message}");
             throw new Exception($"Failed to download lesson: {ex.Message}", ex);
         }
     }

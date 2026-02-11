@@ -65,6 +65,19 @@ public class DownloadManager
         }
     }
 
+    private static void Log(string message)
+    {
+        System.Diagnostics.Debug.WriteLine($"[MeirDownloader] {message}");
+        try
+        {
+            var logPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "MeirDownloader", "download.log");
+            Directory.CreateDirectory(Path.GetDirectoryName(logPath)!);
+            File.AppendAllText(logPath, $"{DateTime.Now:yyyy-MM-dd HH:mm:ss} {message}{Environment.NewLine}");
+        }
+        catch { }
+    }
+
     private async Task DownloadSingleAsync(LessonViewModel lessonVm, string downloadPath, CancellationToken ct, Action onComplete)
     {
         await _semaphore.WaitAsync(ct);
@@ -73,8 +86,23 @@ public class DownloadManager
             ct.ThrowIfCancellationRequested();
 
             lessonVm.Status = DownloadStatus.Downloading;
-            lessonVm.StatusText = "מוריד...";
+            lessonVm.StatusText = "מאתר קובץ...";
             lessonVm.ProgressPercentage = 0;
+
+            // Resolve the real audio URL from the lesson webpage
+            var resolvedUrl = await _service.ResolveAudioUrlAsync(lessonVm.Lesson.Link, ct);
+            if (!string.IsNullOrEmpty(resolvedUrl))
+            {
+                Log($"Resolved URL for '{lessonVm.Title}': {resolvedUrl}");
+                lessonVm.Lesson.AudioUrl = resolvedUrl;
+            }
+            else
+            {
+                Log($"URL resolution failed for '{lessonVm.Title}', falling back to wp2 pattern: {lessonVm.Lesson.AudioUrl}");
+            }
+            // If resolution fails, fall back to the existing AudioUrl (wp2 pattern)
+
+            lessonVm.StatusText = "מוריד...";
 
             var progress = new Progress<DownloadProgress>(p =>
             {
@@ -90,12 +118,15 @@ public class DownloadManager
             var fileName = $"{lessonVm.LessonNumber:D3}-{SanitizeFileName(lessonVm.Title)}.mp3";
             var filePath = Path.Combine(seriesDir, fileName);
 
+            Log($"Starting download for '{lessonVm.Title}' to {filePath}");
+
             // Use the service's download method with lesson number for proper file naming
             await _service.DownloadLessonAsync(lessonVm.Lesson, downloadPath, lessonVm.LessonNumber, progress, ct);
 
             lessonVm.Status = DownloadStatus.Completed;
             lessonVm.ProgressPercentage = 100;
             lessonVm.StatusText = "הושלם ✅";
+            Log($"Download completed for '{lessonVm.Title}'");
             onComplete();
         }
         catch (OperationCanceledException)
@@ -103,12 +134,14 @@ public class DownloadManager
             lessonVm.Status = DownloadStatus.Ready;
             lessonVm.StatusText = "בוטל";
             lessonVm.ProgressPercentage = 0;
+            Log($"Download cancelled for '{lessonVm.Title}'");
         }
         catch (Exception ex)
         {
             lessonVm.Status = DownloadStatus.Error;
-            lessonVm.StatusText = $"שגיאה ❌";
-            System.Diagnostics.Debug.WriteLine($"Download error for {lessonVm.Title}: {ex.Message}");
+            var shortError = ex.Message.Length > 50 ? ex.Message[..50] + "..." : ex.Message;
+            lessonVm.StatusText = $"שגיאה: {shortError}";
+            Log($"Download error for '{lessonVm.Title}': {ex.Message}");
             onComplete(); // Count errors as completed for progress
         }
         finally
