@@ -134,9 +134,13 @@
                                 Style="{StaticResource ModernButtonStyle}" Margin="0,0,10,0" IsEnabled="False"/>
                         <Button x:Name="DownloadAllButton" Content="הורד הכל" Click="DownloadAllButton_Click" 
                                 Style="{StaticResource ModernButtonStyle}" Margin="0,0,10,0" IsEnabled="False"/>
-                        <Button x:Name="CancelDownloadButton" Content="בטל הורדה" Click="CancelDownloadButton_Click" 
-                                Style="{StaticResource ModernButtonStyle}" Background="{StaticResource ErrorBrush}" 
+                        <Button x:Name="CancelDownloadButton" Content="בטל הורדה" Click="CancelDownloadButton_Click"
+                                Style="{StaticResource ModernButtonStyle}" Background="{StaticResource ErrorBrush}"
                                 IsEnabled="False" Visibility="Collapsed"/>
+                        <Button x:Name="OpenDirectoryButton" Content="📂 פתח תיקייה" Click="OpenDirectoryButton_Click"
+                                Style="{StaticResource SecondaryButtonStyle}" Margin="0,0,10,0"
+                                IsEnabled="False" Visibility="Collapsed"
+                                ToolTip="פתח את תיקיית ההורדה"/>
                     </StackPanel>
                 </Grid>
 
