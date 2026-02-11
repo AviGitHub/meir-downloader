@@ -74,8 +74,8 @@ public partial class MainWindow : Window
                 UpdateDownloadButtonStates();
 
                 var series = await _downloaderService.GetSeriesAsync(rabbi.Id);
-                // Filter out series with 0 lessons
-                SeriesListBox.ItemsSource = series.Where(s => s.Count > 0).ToList();
+                // Filter out series with 0 lessons and sort alphabetically
+                SeriesListBox.ItemsSource = series.Where(s => s.Count > 0).OrderBy(s => s.Name).ToList();
                 StatusText.Text = $"נטענו {series.Count} סדרות עבור {rabbi.Name}";
             }
             catch (Exception ex)

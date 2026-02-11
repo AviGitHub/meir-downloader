@@ -58,7 +58,16 @@
                         <ListBox.ItemTemplate>
                             <DataTemplate>
                                 <StackPanel Orientation="Horizontal">
-                                    <TextBlock Text="{Binding Name}" Padding="10,5"/>
+                                    <StackPanel.ToolTip>
+                                        <StackPanel>
+                                            <TextBlock Text="{Binding Name}" FontWeight="Bold" TextWrapping="Wrap" MaxWidth="400"/>
+                                            <TextBlock>
+                                                <Run Text="{Binding Count, Mode=OneWay}"/>
+                                                <Run Text=" שיעורים"/>
+                                            </TextBlock>
+                                        </StackPanel>
+                                    </StackPanel.ToolTip>
+                                    <TextBlock Text="{Binding Name}" Padding="10,5" TextTrimming="CharacterEllipsis" MaxWidth="200"/>
                                     <TextBlock Text="{Binding Count, StringFormat=' ({0})'}" Padding="0,5" Foreground="#7F8C8D"/>
                                 </StackPanel>
                             </DataTemplate>
@@ -74,7 +83,16 @@
                         <ListBox.ItemTemplate>
                             <DataTemplate>
                                 <StackPanel Orientation="Horizontal">
-                                    <TextBlock Text="{Binding Name}" Padding="10,5"/>
+                                    <StackPanel.ToolTip>
+                                        <StackPanel>
+                                            <TextBlock Text="{Binding Name}" FontWeight="Bold" TextWrapping="Wrap" MaxWidth="400"/>
+                                            <TextBlock>
+                                                <Run Text="{Binding Count, Mode=OneWay}"/>
+                                                <Run Text=" שיעורים"/>
+                                            </TextBlock>
+                                        </StackPanel>
+                                    </StackPanel.ToolTip>
+                                    <TextBlock Text="{Binding Name}" Padding="10,5" TextTrimming="CharacterEllipsis" MaxWidth="200"/>
                                     <TextBlock Text="{Binding Count, StringFormat=' ({0})'}" Padding="0,5" Foreground="#7F8C8D"/>
                                 </StackPanel>
                             </DataTemplate>
