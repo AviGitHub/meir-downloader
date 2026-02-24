@@ -70,10 +70,21 @@ public class LessonViewModel : INotifyPropertyChanged
 
     public string GetExpectedFilePath(string downloadPath)
     {
-        var rabbiDir = SanitizeFileName(RabbiName);
-        var seriesDir = SanitizeFileName(SeriesName);
         var fileName = $"{LessonNumber:D3}-{SanitizeFileName(Title)}.mp3";
-        return Path.Combine(downloadPath, rabbiDir, seriesDir, fileName);
+        bool hasRabbi = !string.IsNullOrWhiteSpace(RabbiName) && RabbiName != "Unknown";
+        bool hasSeries = !string.IsNullOrWhiteSpace(SeriesName) && SeriesName != "Unknown";
+
+        string targetDir;
+        if (hasRabbi && hasSeries)
+            targetDir = Path.Combine(downloadPath, SanitizeFileName(RabbiName), SanitizeFileName(SeriesName));
+        else if (hasRabbi)
+            targetDir = Path.Combine(downloadPath, SanitizeFileName(RabbiName));
+        else if (hasSeries)
+            targetDir = Path.Combine(downloadPath, SanitizeFileName(SeriesName));
+        else
+            targetDir = downloadPath;
+
+        return Path.Combine(targetDir, fileName);
     }
 
     public void CheckIfAlreadyDownloaded(string downloadPath)

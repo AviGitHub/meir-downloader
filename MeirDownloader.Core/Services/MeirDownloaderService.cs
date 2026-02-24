@@ -1140,12 +1140,22 @@ public class MeirDownloaderService : IMeirDownloaderService, IDisposable
         var cached = await _cacheService.GetAsync<List<Lesson>>(cacheKey);
         if (cached != null) return cached;
 
+        // Build rabbi ID→name lookup from cached rabbi list
+        var rabbiLookup = new Dictionary<int, string>();
+        var cachedRabbis = await _cacheService.GetAsync<List<Rabbi>>("rabbis_all");
+        if (cachedRabbis != null)
+        {
+            foreach (var r in cachedRabbis)
+                if (int.TryParse(r.Id, out var rid))
+                    rabbiLookup[rid] = r.Name;
+        }
+
         var allLessons = new ConcurrentBag<Lesson>();
         int totalPages = 1;
 
         try
         {
-            var url1 = $"{BaseApiUrl}/shiurim?moadim={topicId}&per_page=100&page=1&_fields=id,title,date,link";
+            var url1 = $"{BaseApiUrl}/shiurim?moadim={topicId}&per_page=100&page=1&_fields=id,title,date,link,rabbis";
             var response1 = await GetWithRetryAsync(url1, ct);
 
             if (!response1.IsSuccessStatusCode)
@@ -1158,7 +1168,7 @@ public class MeirDownloaderService : IMeirDownloaderService, IDisposable
                 int.TryParse(totalPagesValues.FirstOrDefault(), out totalPages);
 
             var json1 = await response1.Content.ReadAsStringAsync(ct);
-            ProcessLessonsJson(json1, allLessons);
+            ProcessTopicLessonsJson(json1, allLessons, rabbiLookup);
 
             if (totalPages > 1)
             {
@@ -1168,12 +1178,12 @@ public class MeirDownloaderService : IMeirDownloaderService, IDisposable
                     await semaphore.WaitAsync(ct);
                     try
                     {
-                        var url = $"{BaseApiUrl}/shiurim?moadim={topicId}&per_page=100&page={page}&_fields=id,title,date,link";
+                        var url = $"{BaseApiUrl}/shiurim?moadim={topicId}&per_page=100&page={page}&_fields=id,title,date,link,rabbis";
                         var response = await GetWithRetryAsync(url, ct);
                         if (response.IsSuccessStatusCode)
                         {
                             var json = await response.Content.ReadAsStringAsync(ct);
-                            ProcessLessonsJson(json, allLessons);
+                            ProcessTopicLessonsJson(json, allLessons, rabbiLookup);
                         }
                         else
                         {
@@ -1195,6 +1205,46 @@ public class MeirDownloaderService : IMeirDownloaderService, IDisposable
         if (result.Any())
             await _cacheService.SetAsync(cacheKey, result, _defaultCacheExpiration);
         return result;
+    }
+
+    private void ProcessTopicLessonsJson(string json, ConcurrentBag<Lesson> collection, Dictionary<int, string> rabbiLookup)
+    {
+        var items = JsonSerializer.Deserialize<JsonElement>(json);
+        if (items.ValueKind != JsonValueKind.Array) return;
+
+        foreach (var item in items.EnumerateArray())
+        {
+            var id = item.GetProperty("id").GetInt32();
+            var titleRendered = item.GetProperty("title").GetProperty("rendered").GetString() ?? string.Empty;
+            var link = item.TryGetProperty("link", out var linkProp) ? linkProp.GetString() ?? string.Empty : string.Empty;
+
+            // Resolve rabbi name from the rabbis array
+            string rabbiName = string.Empty;
+            if (item.TryGetProperty("rabbis", out var rabbisArr) && rabbisArr.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var rid in rabbisArr.EnumerateArray())
+                {
+                    var rabbiId = rid.GetInt32();
+                    if (rabbiLookup.TryGetValue(rabbiId, out var name))
+                    {
+                        rabbiName = name;
+                        break; // use first rabbi
+                    }
+                }
+            }
+
+            collection.Add(new Lesson
+            {
+                Id = id.ToString(),
+                Title = WebUtility.HtmlDecode(titleRendered),
+                RabbiName = rabbiName, // resolved name or empty (not "Unknown")
+                SeriesName = string.Empty,
+                AudioUrl = $"{AudioBaseUrl}/{id}.mp3",
+                Link = link,
+                Date = item.GetProperty("date").GetString() ?? string.Empty,
+                Duration = 0
+            });
+        }
     }
 
     private void ProcessTopicsJson(string json, ConcurrentBag<Topic> collection)

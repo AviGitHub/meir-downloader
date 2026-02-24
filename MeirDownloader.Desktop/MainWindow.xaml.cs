@@ -34,6 +34,7 @@ public partial class MainWindow : Window
     private readonly ObservableCollection<RabbiViewModel> _rabbiViewModels = new();
     private readonly ObservableCollection<Series> _seriesList = new();
     private readonly ObservableCollection<Topic> _topicViewModels = new();
+    private readonly HashSet<string> _selectedRabbiFilterIds = new(); // empty = all selected
 
     public MainWindow()
     {
@@ -138,11 +139,16 @@ public partial class MainWindow : Window
         DownloadSeriesButton.Visibility = Visibility.Visible;
         DownloadTopicButton.Visibility = Visibility.Collapsed;
 
+        // Hide rabbi filter chips and rabbi column
+        RabbiFilterPanel.Visibility = Visibility.Collapsed;
+        RabbiNameColumn.Visibility = System.Windows.Visibility.Collapsed;
+
         // Clear topic selection
         _selectedTopic = null;
         TopicsListBox.SelectedItem = null;
         LessonsGrid.ItemsSource = null;
         _currentLessons = null;
+        _selectedRabbiFilterIds.Clear();
         UpdateDownloadButtonStates();
     }
 
@@ -165,6 +171,11 @@ public partial class MainWindow : Window
         DownloadSeriesButton.Visibility = Visibility.Collapsed;
         DownloadTopicButton.Visibility = Visibility.Visible;
 
+        // Show rabbi filter chips and rabbi column
+        RabbiFilterPanel.Visibility = Visibility.Visible;
+        RabbiNameColumn.Visibility = System.Windows.Visibility.Visible;
+        PopulateRabbiFilterChips();
+
         // Clear rabbi/series selection
         RabbiListBox.SelectedItem = null;
         SeriesListBox.SelectedItem = null;
@@ -176,6 +187,113 @@ public partial class MainWindow : Window
         // Load topics if not yet loaded
         if (_topicViewModels.Count == 0)
             LoadTopics();
+    }
+
+    private void PopulateRabbiFilterChips()
+    {
+        RabbiChipsPanel.Children.Clear();
+        _selectedRabbiFilterIds.Clear();
+
+        // "הכל" (All) chip — always first
+        var allChip = CreateChip("הכל", null, isSelected: true);
+        RabbiChipsPanel.Children.Add(allChip);
+
+        foreach (var rabbiVm in _rabbiViewModels.OrderBy(r => r.Name))
+        {
+            var chip = CreateChip(rabbiVm.Name, rabbiVm.Id, isSelected: false);
+            RabbiChipsPanel.Children.Add(chip);
+        }
+    }
+
+    private System.Windows.Controls.Primitives.ToggleButton CreateChip(string label, string? rabbiId, bool isSelected)
+    {
+        var chip = new System.Windows.Controls.Primitives.ToggleButton
+        {
+            Content = label,
+            IsChecked = isSelected,
+            Tag = rabbiId,
+            Margin = new Thickness(0, 0, 6, 6),
+            Padding = new Thickness(10, 4, 10, 4),
+            FontSize = 12,
+            Cursor = System.Windows.Input.Cursors.Hand,
+        };
+
+        // Style the chip
+        chip.Checked += RabbiChip_Changed;
+        chip.Unchecked += RabbiChip_Changed;
+
+        // Apply visual style inline
+        chip.Style = TryFindResource("ChipToggleButtonStyle") as Style
+                     ?? TryFindResource("SecondaryButtonStyle") as Style;
+
+        return chip;
+    }
+
+    private void RabbiChip_Changed(object sender, RoutedEventArgs e)
+    {
+        if (sender is not System.Windows.Controls.Primitives.ToggleButton chip) return;
+
+        var rabbiId = chip.Tag as string; // null = "All" chip
+
+        if (rabbiId == null)
+        {
+            // "All" chip toggled
+            if (chip.IsChecked == true)
+            {
+                // Deselect all individual chips
+                _selectedRabbiFilterIds.Clear();
+                foreach (System.Windows.Controls.Primitives.ToggleButton c in RabbiChipsPanel.Children)
+                {
+                    if (c.Tag != null) c.IsChecked = false;
+                }
+            }
+        }
+        else
+        {
+            if (chip.IsChecked == true)
+            {
+                _selectedRabbiFilterIds.Add(rabbiId);
+                // Deselect "All" chip
+                if (RabbiChipsPanel.Children.Count > 0 &&
+                    RabbiChipsPanel.Children[0] is System.Windows.Controls.Primitives.ToggleButton allChip)
+                    allChip.IsChecked = false;
+            }
+            else
+            {
+                _selectedRabbiFilterIds.Remove(rabbiId);
+                // If nothing selected, re-select "All"
+                if (_selectedRabbiFilterIds.Count == 0 &&
+                    RabbiChipsPanel.Children.Count > 0 &&
+                    RabbiChipsPanel.Children[0] is System.Windows.Controls.Primitives.ToggleButton allChip)
+                    allChip.IsChecked = true;
+            }
+        }
+
+        ApplyRabbiFilter();
+    }
+
+    private void ApplyRabbiFilter()
+    {
+        if (_currentLessons == null) return;
+
+        if (_selectedRabbiFilterIds.Count == 0)
+        {
+            // Show all
+            LessonsGrid.ItemsSource = _currentLessons;
+        }
+        else
+        {
+            // Filter by selected rabbi IDs — match by RabbiName since lessons store name not ID
+            // Build name set from selected IDs
+            var selectedNames = _rabbiViewModels
+                .Where(r => _selectedRabbiFilterIds.Contains(r.Id))
+                .Select(r => r.Name)
+                .ToHashSet();
+
+            LessonsGrid.ItemsSource = _currentLessons
+                .Where(l => selectedNames.Contains(l.RabbiName))
+                .ToList();
+        }
     }
 
     private async void LoadTopics()
@@ -230,17 +348,15 @@ public partial class MainWindow : Window
 
             var lessons = await _downloaderService.GetAllLessonsByTopicAsync(topic.Id, ct);
 
-            foreach (var lesson in lessons)
-                lesson.SeriesName = topic.Name;
-
             _currentLessons = lessons
                 .Select((lesson, index) => new LessonViewModel(lesson, index + 1))
                 .ToList();
 
+            var topicPath = Path.Combine(_downloadPath, "נושאים", SanitizeFileName(topic.Name));
             foreach (var lessonVm in _currentLessons)
-                lessonVm.CheckIfAlreadyDownloaded(_downloadPath);
+                lessonVm.CheckIfAlreadyDownloaded(topicPath);
 
-            LessonsGrid.ItemsSource = _currentLessons;
+            ApplyRabbiFilter();
             StatusText.Text = $"נטענו {_currentLessons.Count} שיעורים עבור נושא: {topic.Name}";
             UpdateDownloadButtonStates();
         }
@@ -283,8 +399,6 @@ public partial class MainWindow : Window
                 _loadingCts = new CancellationTokenSource();
 
                 var lessons = await _downloaderService.GetAllLessonsByTopicAsync(topic.Id, _loadingCts.Token);
-                foreach (var lesson in lessons)
-                    lesson.SeriesName = topic.Name;
 
                 _currentLessons = lessons
                     .Select((lesson, index) => new LessonViewModel(lesson, index + 1))

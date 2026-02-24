@@ -127,6 +127,7 @@
             <Grid Grid.Row="2">
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
                     <RowDefinition Height="*"/>
                     <RowDefinition Height="Auto"/>
                 </Grid.RowDefinitions>
@@ -154,12 +155,20 @@
                     </StackPanel>
                 </Grid>
 
-                <Border Grid.Row="1" Background="{DynamicResource SurfaceBrush}" CornerRadius="8" Padding="0" ClipToBounds="True">
+                <!-- Rabbi filter chips (topic mode only) -->
+                <Border x:Name="RabbiFilterPanel" Grid.Row="1" Visibility="Collapsed" Margin="0,0,0,10">
+                    <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
+                        <WrapPanel x:Name="RabbiChipsPanel" Orientation="Horizontal"/>
+                    </ScrollViewer>
+                </Border>
+
+                <Border Grid.Row="2" Background="{DynamicResource SurfaceBrush}" CornerRadius="8" Padding="0" ClipToBounds="True">
                     <Grid>
                         <DataGrid x:Name="LessonsGrid" Style="{DynamicResource ModernDataGridStyle}">
                             <DataGrid.Columns>
                                 <DataGridTextColumn Header="#" Binding="{Binding LessonNumber}" Width="50"/>
                                 <DataGridTextColumn Header="שם השיעור" Binding="{Binding Title}" Width="*"/>
+                                <DataGridTextColumn x:Name="RabbiNameColumn" Header="רב" Binding="{Binding RabbiName}" Width="120" Visibility="Collapsed"/>
                                 <DataGridTextColumn Header="תאריך" Binding="{Binding FormattedDate}" Width="120"/>
                                 
                                 <DataGridTemplateColumn Header="סטטוס" Width="200">

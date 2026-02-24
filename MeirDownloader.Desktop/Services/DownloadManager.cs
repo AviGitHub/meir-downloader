@@ -106,13 +106,28 @@ public class DownloadManager
 
             lessonVm.StatusText = "מוריד...";
 
-            // Create directory structure
-            var rabbiDir = Path.Combine(downloadPath, SanitizeFileName(lessonVm.RabbiName));
-            var seriesDir = Path.Combine(rabbiDir, SanitizeFileName(lessonVm.SeriesName));
-            Directory.CreateDirectory(seriesDir);
+            // Create directory structure.
+            // If RabbiName is unknown/empty, place files directly in downloadPath (topic mode).
+            // Otherwise use the standard {rabbi}/{series}/ hierarchy.
+            string targetDir;
+            var rabbiName = lessonVm.RabbiName;
+            var seriesName = lessonVm.SeriesName;
+            bool hasRabbi = !string.IsNullOrWhiteSpace(rabbiName) && rabbiName != "Unknown";
+            bool hasSeries = !string.IsNullOrWhiteSpace(seriesName) && seriesName != "Unknown";
+
+            if (hasRabbi && hasSeries)
+                targetDir = Path.Combine(downloadPath, SanitizeFileName(rabbiName), SanitizeFileName(seriesName));
+            else if (hasRabbi)
+                targetDir = Path.Combine(downloadPath, SanitizeFileName(rabbiName));
+            else if (hasSeries)
+                targetDir = Path.Combine(downloadPath, SanitizeFileName(seriesName));
+            else
+                targetDir = downloadPath;
+
+            Directory.CreateDirectory(targetDir);
 
             var fileName = $"{lessonVm.LessonNumber:D3}-{SanitizeFileName(lessonVm.Title)}.mp3";
-            filePath = Path.Combine(seriesDir, fileName);
+            filePath = Path.Combine(targetDir, fileName);
 
             Log($"Starting download for '{lessonVm.Title}' to {filePath}");
 
