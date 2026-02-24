@@ -13,6 +13,11 @@ public interface IMeirDownloaderService
     Task<string> ResolveAudioUrlAsync(string lessonLink, CancellationToken ct = default);
     Task<string> GetRabbiImageUrlAsync(string rabbiLink, CancellationToken ct = default);
 
+    // Topic (moadim) methods
+    Task<List<Topic>> GetTopicsAsync(CancellationToken ct = default);
+    Task<List<Lesson>> GetAllLessonsByTopicAsync(string topicId, CancellationToken ct = default);
+    IAsyncEnumerable<List<Topic>> GetTopicsStreamAsync(CancellationToken ct = default);
+
     // Streaming methods - yield results page by page for incremental UI updates
     IAsyncEnumerable<List<Rabbi>> GetRabbisStreamAsync(CancellationToken ct = default);
     IAsyncEnumerable<List<Series>> GetSeriesStreamAsync(string? rabbiId = null, CancellationToken ct = default);

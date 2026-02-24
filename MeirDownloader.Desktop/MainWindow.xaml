@@ -26,7 +26,7 @@
         <Grid Grid.Column="0" Margin="30,30,10,30">
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto"/> <!-- Top Bar -->
-                <RowDefinition Height="Auto"/> <!-- Series List -->
+                <RowDefinition Height="Auto"/> <!-- Series List (hidden in topic mode) -->
                 <RowDefinition Height="*"/>    <!-- Lessons List -->
                 <RowDefinition Height="Auto"/> <!-- Status Bar -->
             </Grid.RowDefinitions>
@@ -67,8 +67,8 @@
                 </StackPanel>
             </Grid>
 
-            <!-- Series Selection -->
-            <Grid Grid.Row="1" Margin="0,0,0,20">
+            <!-- Series Selection (visible only in rabbi mode) -->
+            <Grid x:Name="SeriesPanel" Grid.Row="1" Margin="0,0,0,20">
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto"/>
                     <RowDefinition Height="Auto"/>
@@ -141,6 +141,9 @@
                     <StackPanel Grid.Column="1" Orientation="Horizontal">
                         <Button x:Name="DownloadSeriesButton" Content="הורד סדרה" Click="DownloadSeriesButton_Click"
                                 Style="{DynamicResource ModernButtonStyle}" Margin="10,0,0,0" IsEnabled="False"/>
+                        <Button x:Name="DownloadTopicButton" Content="הורד נושא" Click="DownloadTopicButton_Click"
+                                Style="{DynamicResource ModernButtonStyle}" Margin="10,0,0,0" IsEnabled="False"
+                                Visibility="Collapsed"/>
                         <Button x:Name="CancelDownloadButton" Content="בטל הורדה" Click="CancelDownloadButton_Click"
                                 Style="{DynamicResource ModernButtonStyle}" Background="{DynamicResource ErrorBrush}"
                                 Margin="10,0,0,0" IsEnabled="False" Visibility="Collapsed"/>
@@ -248,28 +251,43 @@
         <Border Grid.Column="1" Background="{DynamicResource CardBackgroundBrush}" Effect="{DynamicResource CardShadow}">
             <Grid Margin="20">
                 <Grid.RowDefinitions>
-                    <RowDefinition Height="Auto"/>
-                    <RowDefinition Height="*"/>
-                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>  <!-- Tab buttons -->
+                    <RowDefinition Height="Auto"/>  <!-- Search box -->
+                    <RowDefinition Height="*"/>     <!-- List -->
+                    <RowDefinition Height="Auto"/>  <!-- Refresh button -->
                 </Grid.RowDefinitions>
 
-                <StackPanel Grid.Row="0" Margin="0,0,0,20">
-                    <TextBlock Text="רבנים" Style="{DynamicResource SectionHeaderStyle}"/>
-                    <!-- Search Box -->
-                    <Border Background="{DynamicResource SearchBoxBrush}" CornerRadius="6" Padding="5">
-                        <TextBox x:Name="SearchTextBox"
-                                 TextChanged="SearchTextBox_TextChanged"
-                                 Background="Transparent"
-                                 BorderThickness="0"
-                                 FontSize="14"
-                                 Foreground="{DynamicResource TextPrimaryBrush}"
-                                 CaretBrush="{DynamicResource TextPrimaryBrush}"
-                                 VerticalContentAlignment="Center"
-                                 Padding="5,0"/>
-                    </Border>
-                </StackPanel>
+                <!-- Tab Buttons: רבנים / נושאים -->
+                <Grid Grid.Row="0" Margin="0,0,0,12">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <Button x:Name="RabbisTabButton" Grid.Column="0" Content="רבנים"
+                            Click="RabbisTabButton_Click"
+                            Style="{DynamicResource ModernButtonStyle}"
+                            Margin="0,0,4,0"/>
+                    <Button x:Name="TopicsTabButton" Grid.Column="1" Content="נושאים"
+                            Click="TopicsTabButton_Click"
+                            Style="{DynamicResource SecondaryButtonStyle}"
+                            Margin="4,0,0,0"/>
+                </Grid>
 
-                <ListBox x:Name="RabbiListBox" Grid.Row="1"
+                <!-- Search Box (rabbis only) -->
+                <Border x:Name="SearchBoxBorder" Grid.Row="1" Background="{DynamicResource SearchBoxBrush}" CornerRadius="6" Padding="5" Margin="0,0,0,12">
+                    <TextBox x:Name="SearchTextBox"
+                             TextChanged="SearchTextBox_TextChanged"
+                             Background="Transparent"
+                             BorderThickness="0"
+                             FontSize="14"
+                             Foreground="{DynamicResource TextPrimaryBrush}"
+                             CaretBrush="{DynamicResource TextPrimaryBrush}"
+                             VerticalContentAlignment="Center"
+                             Padding="5,0"/>
+                </Border>
+
+                <!-- Rabbis List -->
+                <ListBox x:Name="RabbiListBox" Grid.Row="2"
                          SelectionChanged="RabbiListBox_SelectionChanged"
                          Background="Transparent" BorderThickness="0"
                          ItemContainerStyle="{DynamicResource RabbiListBoxItemStyle}">
@@ -317,14 +335,49 @@
                     </ListBox.ItemTemplate>
                 </ListBox>
 
-                <!-- Rabbi Loading -->
-                <StackPanel x:Name="RabbiLoadingBar" Grid.Row="1" Visibility="Collapsed"
+                <!-- Topics List -->
+                <ListBox x:Name="TopicsListBox" Grid.Row="2"
+                         Visibility="Collapsed"
+                         SelectionChanged="TopicsListBox_SelectionChanged"
+                         Background="Transparent" BorderThickness="0"
+                         ItemContainerStyle="{DynamicResource RabbiListBoxItemStyle}">
+                    <ListBox.ItemTemplate>
+                        <DataTemplate>
+                            <Grid Margin="8,6" ToolTip="{Binding Name}">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="44"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+
+                                <!-- Topic icon -->
+                                <Border Grid.Column="0" Width="40" Height="40" CornerRadius="20"
+                                        Background="{DynamicResource AvatarBackgroundBrush}">
+                                    <TextBlock Text="📚" FontSize="18"
+                                               HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                </Border>
+
+                                <!-- Name and count -->
+                                <StackPanel Grid.Column="1" VerticalAlignment="Center" Margin="10,0,0,0">
+                                    <TextBlock Text="{Binding Name}" FontSize="13" FontWeight="SemiBold"
+                                               Foreground="{DynamicResource TextPrimaryBrush}" TextTrimming="CharacterEllipsis"/>
+                                    <TextBlock FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}">
+                                        <Run Text="{Binding Count, Mode=OneWay}"/>
+                                        <Run Text=" שיעורים"/>
+                                    </TextBlock>
+                                </StackPanel>
+                            </Grid>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+
+                <!-- Rabbi/Topic Loading -->
+                <StackPanel x:Name="RabbiLoadingBar" Grid.Row="2" Visibility="Collapsed"
                             VerticalAlignment="Center" HorizontalAlignment="Center">
                     <ProgressBar IsIndeterminate="True" Height="4" Width="100" Foreground="{DynamicResource AccentBrush}"/>
                     <TextBlock Text="טוען..." TextAlignment="Center" Margin="0,8,0,0" Foreground="{DynamicResource TextSecondaryBrush}"/>
                 </StackPanel>
 
-                <Button Grid.Row="2" Content="טען מחדש" Click="RefreshButton_Click" 
+                <Button Grid.Row="3" Content="טען מחדש" Click="RefreshButton_Click" 
                         Style="{DynamicResource SecondaryButtonStyle}" Margin="0,20,0,0"/>
             </Grid>
         </Border>
