@@ -121,7 +121,7 @@ public class MeirDownloaderService : IMeirDownloaderService, IDisposable
             Log($"Error fetching rabbis: {ex.Message}");
         }
 
-        var result = allRabbis.ToList();
+        var result = allRabbis.Where(r => r.Count > 0).ToList();
         if (result.Any())
         {
             await _cacheService.SetAsync(cacheKey, result, _defaultCacheExpiration);
@@ -136,11 +136,14 @@ public class MeirDownloaderService : IMeirDownloaderService, IDisposable
         {
             foreach (var item in items.EnumerateArray())
             {
+                var count = item.GetProperty("count").GetInt32();
+                if (count == 0) continue; // skip rabbis with no lessons/series
+
                 collection.Add(new Rabbi
                 {
                     Id = item.GetProperty("id").GetInt32().ToString(),
                     Name = item.GetProperty("name").GetString() ?? string.Empty,
-                    Count = item.GetProperty("count").GetInt32(),
+                    Count = count,
                     Link = item.TryGetProperty("link", out var linkProp) ? linkProp.GetString() ?? string.Empty : string.Empty
                 });
             }
@@ -610,18 +613,22 @@ public class MeirDownloaderService : IMeirDownloaderService, IDisposable
             {
                 foreach (var item in items.EnumerateArray())
                 {
+                    var count = item.GetProperty("count").GetInt32();
+                    if (count == 0) continue; // skip rabbis with no lessons/series
+
                     pageResults.Add(new Rabbi
                     {
                         Id = item.GetProperty("id").GetInt32().ToString(),
                         Name = item.GetProperty("name").GetString() ?? string.Empty,
-                        Count = item.GetProperty("count").GetInt32(),
+                        Count = count,
                         Link = item.TryGetProperty("link", out var linkProp) ? linkProp.GetString() ?? string.Empty : string.Empty
                     });
                 }
             }
 
             allRabbis.AddRange(pageResults);
-            yield return pageResults;
+            if (pageResults.Any())
+                yield return pageResults;
             page++;
         }
 
