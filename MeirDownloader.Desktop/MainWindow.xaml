@@ -168,7 +168,7 @@
                             <DataGrid.Columns>
                                 <DataGridTextColumn Header="#" Binding="{Binding LessonNumber}" Width="50"/>
                                 <DataGridTextColumn Header="שם השיעור" Binding="{Binding Title}" Width="*"/>
-                                <DataGridTextColumn x:Name="RabbiNameColumn" Header="רב" Binding="{Binding RabbiName}" Width="120" Visibility="Collapsed"/>
+                                <DataGridTextColumn Header="רב" Binding="{Binding RabbiName}" Width="120" Visibility="Collapsed"/>
                                 <DataGridTextColumn Header="תאריך" Binding="{Binding FormattedDate}" Width="120"/>
                                 
                                 <DataGridTemplateColumn Header="סטטוס" Width="200">

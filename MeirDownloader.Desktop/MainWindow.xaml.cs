@@ -139,9 +139,10 @@ public partial class MainWindow : Window
         DownloadSeriesButton.Visibility = Visibility.Visible;
         DownloadTopicButton.Visibility = Visibility.Collapsed;
 
-        // Hide rabbi filter chips and rabbi column
+        // Hide rabbi filter chips and rabbi column (index 2 = רב column)
         RabbiFilterPanel.Visibility = Visibility.Collapsed;
-        RabbiNameColumn.Visibility = System.Windows.Visibility.Collapsed;
+        if (LessonsGrid.Columns.Count > 2)
+            LessonsGrid.Columns[2].Visibility = Visibility.Collapsed;
 
         // Clear topic selection
         _selectedTopic = null;
@@ -171,9 +172,10 @@ public partial class MainWindow : Window
         DownloadSeriesButton.Visibility = Visibility.Collapsed;
         DownloadTopicButton.Visibility = Visibility.Visible;
 
-        // Show rabbi filter chips and rabbi column
+        // Show rabbi filter chips and rabbi column (index 2 = רב column)
         RabbiFilterPanel.Visibility = Visibility.Visible;
-        RabbiNameColumn.Visibility = System.Windows.Visibility.Visible;
+        if (LessonsGrid.Columns.Count > 2)
+            LessonsGrid.Columns[2].Visibility = Visibility.Visible;
         PopulateRabbiFilterChips();
 
         // Clear rabbi/series selection
