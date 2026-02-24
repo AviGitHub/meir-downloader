@@ -29,7 +29,8 @@ public partial class MainWindow : Window
     private CancellationTokenSource? _imageLoadingCts;
     private bool _isDownloading;
     private bool _isTopicMode;
-    private List<LessonViewModel>? _currentLessons;
+    private List<LessonViewModel>? _currentLessons;       // all lessons for current selection
+    private List<LessonViewModel>? _filteredLessons;      // filtered + renumbered (used for download)
     private Topic? _selectedTopic;
     private readonly ObservableCollection<RabbiViewModel> _rabbiViewModels = new();
     private readonly ObservableCollection<Series> _seriesList = new();
@@ -149,6 +150,7 @@ public partial class MainWindow : Window
         TopicsListBox.SelectedItem = null;
         LessonsGrid.ItemsSource = null;
         _currentLessons = null;
+        _filteredLessons = null;
         _selectedRabbiFilterIds.Clear();
         UpdateDownloadButtonStates();
     }
@@ -184,6 +186,7 @@ public partial class MainWindow : Window
         _seriesList.Clear();
         LessonsGrid.ItemsSource = null;
         _currentLessons = null;
+        _filteredLessons = null;
         UpdateDownloadButtonStates();
 
         // Load topics if not yet loaded
@@ -200,7 +203,7 @@ public partial class MainWindow : Window
         var allChip = CreateChip("הכל", null, isSelected: true);
         RabbiChipsPanel.Children.Add(allChip);
 
-        foreach (var rabbiVm in _rabbiViewModels.OrderBy(r => r.Name))
+        foreach (var rabbiVm in _rabbiViewModels.OrderByDescending(r => r.Count))
         {
             var chip = CreateChip(rabbiVm.Name, rabbiVm.Id, isSelected: false);
             RabbiChipsPanel.Children.Add(chip);
@@ -209,6 +212,11 @@ public partial class MainWindow : Window
 
     private System.Windows.Controls.Primitives.ToggleButton CreateChip(string label, string? rabbiId, bool isSelected)
     {
+        var accentBrush = TryFindResource("AccentBrush") as Brush ?? Brushes.Teal;
+        var surfaceBrush = TryFindResource("SurfaceBrush") as Brush ?? Brushes.White;
+        var textPrimary = TryFindResource("TextPrimaryBrush") as Brush ?? Brushes.Black;
+        var borderBrush = TryFindResource("BorderBrush") as Brush ?? Brushes.LightGray;
+
         var chip = new System.Windows.Controls.Primitives.ToggleButton
         {
             Content = label,
@@ -218,15 +226,26 @@ public partial class MainWindow : Window
             Padding = new Thickness(10, 4, 10, 4),
             FontSize = 12,
             Cursor = System.Windows.Input.Cursors.Hand,
+            Background = isSelected ? accentBrush : surfaceBrush,
+            Foreground = isSelected ? Brushes.White : textPrimary,
+            BorderBrush = isSelected ? accentBrush : borderBrush,
+            BorderThickness = new Thickness(1),
         };
 
-        // Style the chip
-        chip.Checked += RabbiChip_Changed;
-        chip.Unchecked += RabbiChip_Changed;
-
-        // Apply visual style inline
-        chip.Style = TryFindResource("ChipToggleButtonStyle") as Style
-                     ?? TryFindResource("SecondaryButtonStyle") as Style;
+        chip.Checked += (s, e) =>
+        {
+            chip.Background = accentBrush;
+            chip.Foreground = Brushes.White;
+            chip.BorderBrush = accentBrush;
+            RabbiChip_Changed(s, e);
+        };
+        chip.Unchecked += (s, e) =>
+        {
+            chip.Background = surfaceBrush;
+            chip.Foreground = textPrimary;
+            chip.BorderBrush = borderBrush;
+            RabbiChip_Changed(s, e);
+        };
 
         return chip;
     }
@@ -278,23 +297,40 @@ public partial class MainWindow : Window
     {
         if (_currentLessons == null) return;
 
+        List<LessonViewModel> filtered;
+
         if (_selectedRabbiFilterIds.Count == 0)
         {
-            // Show all
-            LessonsGrid.ItemsSource = _currentLessons;
+            filtered = _currentLessons;
         }
         else
         {
-            // Filter by selected rabbi IDs — match by RabbiName since lessons store name not ID
-            // Build name set from selected IDs
+            // Build name set from selected rabbi IDs
             var selectedNames = _rabbiViewModels
                 .Where(r => _selectedRabbiFilterIds.Contains(r.Id))
                 .Select(r => r.Name)
                 .ToHashSet();
 
-            LessonsGrid.ItemsSource = _currentLessons
+            filtered = _currentLessons
                 .Where(l => selectedNames.Contains(l.RabbiName))
                 .ToList();
+        }
+
+        // Renumber filtered lessons 1..N
+        for (int i = 0; i < filtered.Count; i++)
+            filtered[i].LessonNumber = i + 1;
+
+        _filteredLessons = filtered;
+        LessonsGrid.ItemsSource = _filteredLessons;
+
+        // Update status bar to reflect filtered count
+        if (_selectedTopic != null)
+        {
+            var totalCount = _currentLessons.Count;
+            var filteredCount = filtered.Count;
+            StatusText.Text = filteredCount == totalCount
+                ? $"נטענו {totalCount} שיעורים עבור נושא: {_selectedTopic.Name}"
+                : $"מוצגים {filteredCount} מתוך {totalCount} שיעורים עבור נושא: {_selectedTopic.Name}";
         }
     }
 
@@ -406,27 +442,30 @@ public partial class MainWindow : Window
                     .Select((lesson, index) => new LessonViewModel(lesson, index + 1))
                     .ToList();
 
-                LessonsGrid.ItemsSource = _currentLessons;
+                ApplyRabbiFilter();
             }
 
-            if (_currentLessons.Count == 0)
+            // Use filtered list (respects rabbi chip selection + renumbering)
+            var toDownload = _filteredLessons ?? _currentLessons;
+
+            if (toDownload == null || toDownload.Count == 0)
             {
                 StatusText.Text = "לא נמצאו שיעורים בנושא זה";
                 return;
             }
 
-            // Download into נושאים/{topic name}/
             var topicDownloadPath = Path.Combine(_downloadPath, "נושאים", SanitizeFileName(topic.Name));
 
-            StatusText.Text = $"מוריד {_currentLessons.Count} שיעורים מנושא: {topic.Name}";
+            StatusText.Text = $"מוריד {toDownload.Count} שיעורים מנושא: {topic.Name}";
             OverallProgressBar.Value = 0;
             OverallProgressText.Text = "";
 
-            await _downloadManager.DownloadAllAsync(_currentLessons, topicDownloadPath);
+            await _downloadManager.DownloadAllAsync(toDownload, topicDownloadPath,
+                flatMode: true, albumOverride: topic.Name);
 
-            var completed = _currentLessons.Count(l => l.Status == DownloadStatus.Completed);
-            var skipped = _currentLessons.Count(l => l.Status == DownloadStatus.Skipped);
-            var errors = _currentLessons.Count(l => l.Status == DownloadStatus.Error);
+            var completed = toDownload.Count(l => l.Status == DownloadStatus.Completed);
+            var skipped = toDownload.Count(l => l.Status == DownloadStatus.Skipped);
+            var errors = toDownload.Count(l => l.Status == DownloadStatus.Error);
 
             StatusText.Text = $"הורדה הושלמה: {completed} הורדו, {skipped} כבר קיימים, {errors} שגיאות";
         }
@@ -668,13 +707,23 @@ public partial class MainWindow : Window
             {
                 SetDownloadingState(true);
 
-                // Use topic subfolder when in topic mode
-                var downloadPath = _isTopicMode && _selectedTopic != null
-                    ? Path.Combine(_downloadPath, "נושאים", SanitizeFileName(_selectedTopic.Name))
-                    : _downloadPath;
+                string downloadPath;
+                bool flatMode = false;
+                string? albumOverride = null;
+
+                if (_isTopicMode && _selectedTopic != null)
+                {
+                    downloadPath = Path.Combine(_downloadPath, "נושאים", SanitizeFileName(_selectedTopic.Name));
+                    flatMode = true;
+                    albumOverride = _selectedTopic.Name;
+                }
+                else
+                {
+                    downloadPath = _downloadPath;
+                }
 
                 var singleList = new List<LessonViewModel> { lessonVm };
-                await _downloadManager.DownloadAllAsync(singleList, downloadPath);
+                await _downloadManager.DownloadAllAsync(singleList, downloadPath, flatMode, albumOverride);
 
                 StatusText.Text = lessonVm.Status == DownloadStatus.Completed
                     ? $"הורדה הושלמה: {lessonVm.Title}"

@@ -41,6 +41,17 @@ public class LessonViewModel : INotifyPropertyChanged
         }
     }
     public string DisplayTitle => $"{LessonNumber:D3} - {Title}";
+    public string FormattedDuration
+    {
+        get
+        {
+            if (Lesson.Duration <= 0) return string.Empty;
+            var ts = TimeSpan.FromSeconds(Lesson.Duration);
+            return ts.TotalHours >= 1
+                ? $"{(int)ts.TotalHours}:{ts.Minutes:D2}"
+                : $"0:{ts.Minutes:D2}";
+        }
+    }
 
     public DownloadStatus Status
     {

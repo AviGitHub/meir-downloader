@@ -1136,13 +1136,19 @@ public class MeirDownloaderService : IMeirDownloaderService, IDisposable
 
     public async Task<List<Lesson>> GetAllLessonsByTopicAsync(string topicId, CancellationToken ct = default)
     {
-        var cacheKey = $"lessons_topic_{topicId}";
+        // v2 suffix: invalidates old cache entries that lacked rabbi name resolution
+        var cacheKey = $"lessons_topic_{topicId}_v2";
         var cached = await _cacheService.GetAsync<List<Lesson>>(cacheKey);
         if (cached != null) return cached;
 
-        // Build rabbi ID→name lookup from cached rabbi list
+        // Build rabbi ID→name lookup — use cache or fetch if not yet loaded
         var rabbiLookup = new Dictionary<int, string>();
         var cachedRabbis = await _cacheService.GetAsync<List<Rabbi>>("rabbis_all");
+        if (cachedRabbis == null)
+        {
+            // Rabbis not yet cached — fetch them now so we can resolve names
+            try { cachedRabbis = await GetRabbisAsync(ct); } catch { }
+        }
         if (cachedRabbis != null)
         {
             foreach (var r in cachedRabbis)
