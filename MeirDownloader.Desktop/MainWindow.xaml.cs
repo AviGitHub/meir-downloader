@@ -193,7 +193,19 @@ public partial class MainWindow : Window
                     StatusText.Text = $"סורק שיעורים עבור {rabbi.Name}... נמצאו {_seriesList.Count} סדרות";
                 }
 
-                StatusText.Text = $"נטענו {_seriesList.Count} סדרות עבור {rabbi.Name}";
+                if (_seriesList.Count == 0)
+                {
+                    // Rabbi has no series — remove from list so it won't appear again
+                    var vmToRemove = _rabbiViewModels.FirstOrDefault(r => r.Id == rabbi.Id);
+                    if (vmToRemove != null)
+                        _rabbiViewModels.Remove(vmToRemove);
+                    RabbiListBox.SelectedItem = null;
+                    StatusText.Text = $"לרב {rabbi.Name} אין סדרות — הוסר מהרשימה";
+                }
+                else
+                {
+                    StatusText.Text = $"נטענו {_seriesList.Count} סדרות עבור {rabbi.Name}";
+                }
             }
             catch (OperationCanceledException)
             {
