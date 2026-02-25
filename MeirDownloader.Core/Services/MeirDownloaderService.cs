@@ -121,7 +121,7 @@ public class MeirDownloaderService : IMeirDownloaderService, IDisposable
             Log($"Error fetching rabbis: {ex.Message}");
         }
 
-        var result = allRabbis.ToList();
+        var result = allRabbis.Where(r => r.Count > 0).ToList();
         if (result.Any())
         {
             await _cacheService.SetAsync(cacheKey, result, _defaultCacheExpiration);
@@ -136,11 +136,14 @@ public class MeirDownloaderService : IMeirDownloaderService, IDisposable
         {
             foreach (var item in items.EnumerateArray())
             {
+                var count = item.GetProperty("count").GetInt32();
+                if (count == 0) continue; // skip rabbis with no lessons/series
+
                 collection.Add(new Rabbi
                 {
                     Id = item.GetProperty("id").GetInt32().ToString(),
                     Name = item.GetProperty("name").GetString() ?? string.Empty,
-                    Count = item.GetProperty("count").GetInt32(),
+                    Count = count,
                     Link = item.TryGetProperty("link", out var linkProp) ? linkProp.GetString() ?? string.Empty : string.Empty
                 });
             }
@@ -610,18 +613,22 @@ public class MeirDownloaderService : IMeirDownloaderService, IDisposable
             {
                 foreach (var item in items.EnumerateArray())
                 {
+                    var count = item.GetProperty("count").GetInt32();
+                    if (count == 0) continue; // skip rabbis with no lessons/series
+
                     pageResults.Add(new Rabbi
                     {
                         Id = item.GetProperty("id").GetInt32().ToString(),
                         Name = item.GetProperty("name").GetString() ?? string.Empty,
-                        Count = item.GetProperty("count").GetInt32(),
+                        Count = count,
                         Link = item.TryGetProperty("link", out var linkProp) ? linkProp.GetString() ?? string.Empty : string.Empty
                     });
                 }
             }
 
             allRabbis.AddRange(pageResults);
-            yield return pageResults;
+            if (pageResults.Any())
+                yield return pageResults;
             page++;
         }
 
@@ -1000,6 +1007,271 @@ public class MeirDownloaderService : IMeirDownloaderService, IDisposable
             .Where(c => !invalidChars.Contains(c))
             .ToArray());
         return string.IsNullOrWhiteSpace(sanitized) ? "Unknown" : sanitized;
+    }
+
+    // ── Topics (moadim taxonomy) ─────────────────────────────────────────────
+
+    public async Task<List<Topic>> GetTopicsAsync(CancellationToken ct = default)
+    {
+        var cacheKey = "topics_all";
+        var cached = await _cacheService.GetAsync<List<Topic>>(cacheKey);
+        if (cached != null) return cached;
+
+        var allTopics = new ConcurrentBag<Topic>();
+        int totalPages = 1;
+
+        try
+        {
+            var url1 = $"{BaseApiUrl}/moadim?per_page=100&page=1&orderby=count&order=desc&_fields=id,name,slug,count";
+            var response1 = await GetWithRetryAsync(url1, ct);
+
+            if (!response1.IsSuccessStatusCode)
+            {
+                Log($"Failed to fetch topics page 1: HTTP {(int)response1.StatusCode}");
+                return new List<Topic>();
+            }
+
+            if (response1.Headers.TryGetValues("X-WP-TotalPages", out var totalPagesValues))
+                int.TryParse(totalPagesValues.FirstOrDefault(), out totalPages);
+
+            var json1 = await response1.Content.ReadAsStringAsync(ct);
+            ProcessTopicsJson(json1, allTopics);
+
+            if (totalPages > 1)
+            {
+                var semaphore = new SemaphoreSlim(MaxConcurrency);
+                var tasks = Enumerable.Range(2, totalPages - 1).Select(async page =>
+                {
+                    await semaphore.WaitAsync(ct);
+                    try
+                    {
+                        var url = $"{BaseApiUrl}/moadim?per_page=100&page={page}&orderby=count&order=desc&_fields=id,name,slug,count";
+                        var response = await GetWithRetryAsync(url, ct);
+                        if (response.IsSuccessStatusCode)
+                        {
+                            var json = await response.Content.ReadAsStringAsync(ct);
+                            ProcessTopicsJson(json, allTopics);
+                        }
+                        else
+                        {
+                            Log($"Failed to fetch topics page {page}: HTTP {(int)response.StatusCode}");
+                        }
+                    }
+                    finally { semaphore.Release(); }
+                });
+                await Task.WhenAll(tasks);
+            }
+        }
+        catch (Exception ex)
+        {
+            Log($"Error fetching topics: {ex.Message}");
+        }
+
+        var result = allTopics.Where(t => t.Count > 0).OrderByDescending(t => t.Count).ToList();
+        if (result.Any())
+            await _cacheService.SetAsync(cacheKey, result, _defaultCacheExpiration);
+        return result;
+    }
+
+    public async IAsyncEnumerable<List<Topic>> GetTopicsStreamAsync([EnumeratorCancellation] CancellationToken ct = default)
+    {
+        var cacheKey = "topics_all";
+        var cached = await _cacheService.GetAsync<List<Topic>>(cacheKey);
+        if (cached != null)
+        {
+            yield return cached;
+            yield break;
+        }
+
+        var allTopics = new List<Topic>();
+        int page = 1;
+        int totalPages = 1;
+
+        while (page <= totalPages)
+        {
+            ct.ThrowIfCancellationRequested();
+
+            var url = $"{BaseApiUrl}/moadim?per_page=100&page={page}&orderby=count&order=desc&_fields=id,name,slug,count";
+            var response = await GetWithRetryAsync(url, ct);
+
+            if (!response.IsSuccessStatusCode)
+            {
+                Log($"Failed to fetch topics page {page}: HTTP {(int)response.StatusCode}");
+                break;
+            }
+
+            if (page == 1 && response.Headers.TryGetValues("X-WP-TotalPages", out var totalPagesValues))
+                int.TryParse(totalPagesValues.FirstOrDefault(), out totalPages);
+
+            var json = await response.Content.ReadAsStringAsync(ct);
+            var items = JsonSerializer.Deserialize<JsonElement>(json);
+            var pageResults = new List<Topic>();
+
+            if (items.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var item in items.EnumerateArray())
+                {
+                    var count = item.GetProperty("count").GetInt32();
+                    if (count == 0) continue;
+
+                    pageResults.Add(new Topic
+                    {
+                        Id = item.GetProperty("id").GetInt32().ToString(),
+                        Name = item.GetProperty("name").GetString() ?? string.Empty,
+                        Slug = item.TryGetProperty("slug", out var slugProp) ? slugProp.GetString() ?? string.Empty : string.Empty,
+                        Count = count
+                    });
+                }
+            }
+
+            allTopics.AddRange(pageResults);
+            if (pageResults.Any())
+                yield return pageResults;
+            page++;
+        }
+
+        if (allTopics.Any())
+            await _cacheService.SetAsync(cacheKey, allTopics, _defaultCacheExpiration);
+    }
+
+    public async Task<List<Lesson>> GetAllLessonsByTopicAsync(string topicId, CancellationToken ct = default)
+    {
+        // v2 suffix: invalidates old cache entries that lacked rabbi name resolution
+        var cacheKey = $"lessons_topic_{topicId}_v2";
+        var cached = await _cacheService.GetAsync<List<Lesson>>(cacheKey);
+        if (cached != null) return cached;
+
+        // Build rabbi ID→name lookup — use cache or fetch if not yet loaded
+        var rabbiLookup = new Dictionary<int, string>();
+        var cachedRabbis = await _cacheService.GetAsync<List<Rabbi>>("rabbis_all");
+        if (cachedRabbis == null)
+        {
+            // Rabbis not yet cached — fetch them now so we can resolve names
+            try { cachedRabbis = await GetRabbisAsync(ct); } catch { }
+        }
+        if (cachedRabbis != null)
+        {
+            foreach (var r in cachedRabbis)
+                if (int.TryParse(r.Id, out var rid))
+                    rabbiLookup[rid] = r.Name;
+        }
+
+        var allLessons = new ConcurrentBag<Lesson>();
+        int totalPages = 1;
+
+        try
+        {
+            var url1 = $"{BaseApiUrl}/shiurim?moadim={topicId}&per_page=100&page=1&_fields=id,title,date,link,rabbis";
+            var response1 = await GetWithRetryAsync(url1, ct);
+
+            if (!response1.IsSuccessStatusCode)
+            {
+                Log($"Failed to fetch lessons for topic {topicId} page 1: HTTP {(int)response1.StatusCode}");
+                return new List<Lesson>();
+            }
+
+            if (response1.Headers.TryGetValues("X-WP-TotalPages", out var totalPagesValues))
+                int.TryParse(totalPagesValues.FirstOrDefault(), out totalPages);
+
+            var json1 = await response1.Content.ReadAsStringAsync(ct);
+            ProcessTopicLessonsJson(json1, allLessons, rabbiLookup);
+
+            if (totalPages > 1)
+            {
+                var semaphore = new SemaphoreSlim(MaxConcurrency);
+                var tasks = Enumerable.Range(2, totalPages - 1).Select(async page =>
+                {
+                    await semaphore.WaitAsync(ct);
+                    try
+                    {
+                        var url = $"{BaseApiUrl}/shiurim?moadim={topicId}&per_page=100&page={page}&_fields=id,title,date,link,rabbis";
+                        var response = await GetWithRetryAsync(url, ct);
+                        if (response.IsSuccessStatusCode)
+                        {
+                            var json = await response.Content.ReadAsStringAsync(ct);
+                            ProcessTopicLessonsJson(json, allLessons, rabbiLookup);
+                        }
+                        else
+                        {
+                            Log($"Failed to fetch lessons for topic {topicId} page {page}: HTTP {(int)response.StatusCode}");
+                        }
+                    }
+                    finally { semaphore.Release(); }
+                });
+                await Task.WhenAll(tasks);
+            }
+        }
+        catch (OperationCanceledException) { throw; }
+        catch (Exception ex)
+        {
+            Log($"Error fetching lessons for topic {topicId}: {ex.Message}");
+        }
+
+        var result = allLessons.OrderBy(l => l.Date).ToList();
+        if (result.Any())
+            await _cacheService.SetAsync(cacheKey, result, _defaultCacheExpiration);
+        return result;
+    }
+
+    private void ProcessTopicLessonsJson(string json, ConcurrentBag<Lesson> collection, Dictionary<int, string> rabbiLookup)
+    {
+        var items = JsonSerializer.Deserialize<JsonElement>(json);
+        if (items.ValueKind != JsonValueKind.Array) return;
+
+        foreach (var item in items.EnumerateArray())
+        {
+            var id = item.GetProperty("id").GetInt32();
+            var titleRendered = item.GetProperty("title").GetProperty("rendered").GetString() ?? string.Empty;
+            var link = item.TryGetProperty("link", out var linkProp) ? linkProp.GetString() ?? string.Empty : string.Empty;
+
+            // Resolve rabbi name from the rabbis array
+            string rabbiName = string.Empty;
+            if (item.TryGetProperty("rabbis", out var rabbisArr) && rabbisArr.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var rid in rabbisArr.EnumerateArray())
+                {
+                    var rabbiId = rid.GetInt32();
+                    if (rabbiLookup.TryGetValue(rabbiId, out var name))
+                    {
+                        rabbiName = name;
+                        break; // use first rabbi
+                    }
+                }
+            }
+
+            collection.Add(new Lesson
+            {
+                Id = id.ToString(),
+                Title = WebUtility.HtmlDecode(titleRendered),
+                RabbiName = rabbiName, // resolved name or empty (not "Unknown")
+                SeriesName = string.Empty,
+                AudioUrl = $"{AudioBaseUrl}/{id}.mp3",
+                Link = link,
+                Date = item.GetProperty("date").GetString() ?? string.Empty,
+                Duration = 0
+            });
+        }
+    }
+
+    private void ProcessTopicsJson(string json, ConcurrentBag<Topic> collection)
+    {
+        var items = JsonSerializer.Deserialize<JsonElement>(json);
+        if (items.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var item in items.EnumerateArray())
+            {
+                var count = item.GetProperty("count").GetInt32();
+                if (count == 0) continue;
+
+                collection.Add(new Topic
+                {
+                    Id = item.GetProperty("id").GetInt32().ToString(),
+                    Name = item.GetProperty("name").GetString() ?? string.Empty,
+                    Slug = item.TryGetProperty("slug", out var slugProp) ? slugProp.GetString() ?? string.Empty : string.Empty,
+                    Count = count
+                });
+            }
+        }
     }
 
     public void Dispose()

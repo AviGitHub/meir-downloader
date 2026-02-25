@@ -28,9 +28,14 @@ public partial class MainWindow : Window
     private CancellationTokenSource? _seriesLoadingCts;
     private CancellationTokenSource? _imageLoadingCts;
     private bool _isDownloading;
-    private List<LessonViewModel>? _currentLessons;
+    private bool _isTopicMode;
+    private List<LessonViewModel>? _currentLessons;       // all lessons for current selection
+    private List<LessonViewModel>? _filteredLessons;      // filtered + renumbered (used for download)
+    private Topic? _selectedTopic;
     private readonly ObservableCollection<RabbiViewModel> _rabbiViewModels = new();
     private readonly ObservableCollection<Series> _seriesList = new();
+    private readonly ObservableCollection<Topic> _topicViewModels = new();
+    private readonly HashSet<string> _selectedRabbiFilterIds = new(); // empty = all selected
 
     public MainWindow()
     {
@@ -114,6 +119,373 @@ public partial class MainWindow : Window
         }
     }
 
+    // ── Tab switching ────────────────────────────────────────────────────────
+
+    private void RabbisTabButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (!_isTopicMode) return;
+        _isTopicMode = false;
+
+        // Swap button styles
+        RabbisTabButton.Style = (Style)FindResource("ModernButtonStyle");
+        TopicsTabButton.Style = (Style)FindResource("SecondaryButtonStyle");
+
+        // Show rabbis, hide topics
+        RabbiListBox.Visibility = Visibility.Visible;
+        TopicsListBox.Visibility = Visibility.Collapsed;
+        SearchBoxBorder.Visibility = Visibility.Visible;
+        SeriesPanel.Visibility = Visibility.Visible;
+
+        // Show series download button, hide topic download button
+        DownloadSeriesButton.Visibility = Visibility.Visible;
+        DownloadTopicButton.Visibility = Visibility.Collapsed;
+
+        // Hide rabbi filter chips and rabbi column (index 2 = רב column)
+        RabbiFilterPanel.Visibility = Visibility.Collapsed;
+        if (LessonsGrid.Columns.Count > 2)
+            LessonsGrid.Columns[2].Visibility = Visibility.Collapsed;
+
+        // Clear topic selection
+        _selectedTopic = null;
+        TopicsListBox.SelectedItem = null;
+        LessonsGrid.ItemsSource = null;
+        _currentLessons = null;
+        _filteredLessons = null;
+        _selectedRabbiFilterIds.Clear();
+        UpdateDownloadButtonStates();
+    }
+
+    private void TopicsTabButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (_isTopicMode) return;
+        _isTopicMode = true;
+
+        // Swap button styles
+        TopicsTabButton.Style = (Style)FindResource("ModernButtonStyle");
+        RabbisTabButton.Style = (Style)FindResource("SecondaryButtonStyle");
+
+        // Show topics, hide rabbis
+        RabbiListBox.Visibility = Visibility.Collapsed;
+        TopicsListBox.Visibility = Visibility.Visible;
+        SearchBoxBorder.Visibility = Visibility.Collapsed;
+        SeriesPanel.Visibility = Visibility.Collapsed;
+
+        // Show topic download button, hide series download button
+        DownloadSeriesButton.Visibility = Visibility.Collapsed;
+        DownloadTopicButton.Visibility = Visibility.Visible;
+
+        // Show rabbi filter chips and rabbi column (index 2 = רב column)
+        RabbiFilterPanel.Visibility = Visibility.Visible;
+        if (LessonsGrid.Columns.Count > 2)
+            LessonsGrid.Columns[2].Visibility = Visibility.Visible;
+        PopulateRabbiFilterChips();
+
+        // Clear rabbi/series selection
+        RabbiListBox.SelectedItem = null;
+        SeriesListBox.SelectedItem = null;
+        _seriesList.Clear();
+        LessonsGrid.ItemsSource = null;
+        _currentLessons = null;
+        _filteredLessons = null;
+        UpdateDownloadButtonStates();
+
+        // Load topics if not yet loaded
+        if (_topicViewModels.Count == 0)
+            LoadTopics();
+    }
+
+    private void PopulateRabbiFilterChips()
+    {
+        RabbiChipsPanel.Children.Clear();
+        _selectedRabbiFilterIds.Clear();
+
+        // "הכל" (All) chip — always first
+        var allChip = CreateChip("הכל", null, isSelected: true);
+        RabbiChipsPanel.Children.Add(allChip);
+
+        foreach (var rabbiVm in _rabbiViewModels.OrderByDescending(r => r.Count))
+        {
+            var chip = CreateChip(rabbiVm.Name, rabbiVm.Id, isSelected: false);
+            RabbiChipsPanel.Children.Add(chip);
+        }
+    }
+
+    private System.Windows.Controls.Primitives.ToggleButton CreateChip(string label, string? rabbiId, bool isSelected)
+    {
+        var accentBrush = TryFindResource("AccentBrush") as Brush ?? Brushes.Teal;
+        var surfaceBrush = TryFindResource("SurfaceBrush") as Brush ?? Brushes.White;
+        var textPrimary = TryFindResource("TextPrimaryBrush") as Brush ?? Brushes.Black;
+        var borderBrush = TryFindResource("BorderBrush") as Brush ?? Brushes.LightGray;
+
+        var chip = new System.Windows.Controls.Primitives.ToggleButton
+        {
+            Content = label,
+            IsChecked = isSelected,
+            Tag = rabbiId,
+            Margin = new Thickness(0, 0, 6, 6),
+            Padding = new Thickness(10, 4, 10, 4),
+            FontSize = 12,
+            Cursor = System.Windows.Input.Cursors.Hand,
+            Background = isSelected ? accentBrush : surfaceBrush,
+            Foreground = isSelected ? Brushes.White : textPrimary,
+            BorderBrush = isSelected ? accentBrush : borderBrush,
+            BorderThickness = new Thickness(1),
+        };
+
+        chip.Checked += (s, e) =>
+        {
+            chip.Background = accentBrush;
+            chip.Foreground = Brushes.White;
+            chip.BorderBrush = accentBrush;
+            RabbiChip_Changed(s, e);
+        };
+        chip.Unchecked += (s, e) =>
+        {
+            chip.Background = surfaceBrush;
+            chip.Foreground = textPrimary;
+            chip.BorderBrush = borderBrush;
+            RabbiChip_Changed(s, e);
+        };
+
+        return chip;
+    }
+
+    private void RabbiChip_Changed(object sender, RoutedEventArgs e)
+    {
+        if (sender is not System.Windows.Controls.Primitives.ToggleButton chip) return;
+
+        var rabbiId = chip.Tag as string; // null = "All" chip
+
+        if (rabbiId == null)
+        {
+            // "All" chip toggled
+            if (chip.IsChecked == true)
+            {
+                // Deselect all individual chips
+                _selectedRabbiFilterIds.Clear();
+                foreach (System.Windows.Controls.Primitives.ToggleButton c in RabbiChipsPanel.Children)
+                {
+                    if (c.Tag != null) c.IsChecked = false;
+                }
+            }
+        }
+        else
+        {
+            if (chip.IsChecked == true)
+            {
+                _selectedRabbiFilterIds.Add(rabbiId);
+                // Deselect "All" chip
+                if (RabbiChipsPanel.Children.Count > 0 &&
+                    RabbiChipsPanel.Children[0] is System.Windows.Controls.Primitives.ToggleButton allChip)
+                    allChip.IsChecked = false;
+            }
+            else
+            {
+                _selectedRabbiFilterIds.Remove(rabbiId);
+                // If nothing selected, re-select "All"
+                if (_selectedRabbiFilterIds.Count == 0 &&
+                    RabbiChipsPanel.Children.Count > 0 &&
+                    RabbiChipsPanel.Children[0] is System.Windows.Controls.Primitives.ToggleButton allChip)
+                    allChip.IsChecked = true;
+            }
+        }
+
+        ApplyRabbiFilter();
+    }
+
+    private void ApplyRabbiFilter()
+    {
+        if (_currentLessons == null) return;
+
+        List<LessonViewModel> filtered;
+
+        if (_selectedRabbiFilterIds.Count == 0)
+        {
+            filtered = _currentLessons;
+        }
+        else
+        {
+            // Build name set from selected rabbi IDs
+            var selectedNames = _rabbiViewModels
+                .Where(r => _selectedRabbiFilterIds.Contains(r.Id))
+                .Select(r => r.Name)
+                .ToHashSet();
+
+            filtered = _currentLessons
+                .Where(l => selectedNames.Contains(l.RabbiName))
+                .ToList();
+        }
+
+        // Renumber filtered lessons 1..N
+        for (int i = 0; i < filtered.Count; i++)
+            filtered[i].LessonNumber = i + 1;
+
+        _filteredLessons = filtered;
+        LessonsGrid.ItemsSource = _filteredLessons;
+
+        // Update status bar to reflect filtered count
+        if (_selectedTopic != null)
+        {
+            var totalCount = _currentLessons.Count;
+            var filteredCount = filtered.Count;
+            StatusText.Text = filteredCount == totalCount
+                ? $"נטענו {totalCount} שיעורים עבור נושא: {_selectedTopic.Name}"
+                : $"מוצגים {filteredCount} מתוך {totalCount} שיעורים עבור נושא: {_selectedTopic.Name}";
+        }
+    }
+
+    private async void LoadTopics()
+    {
+        try
+        {
+            _rabbiLoadingCts?.Cancel();
+            _rabbiLoadingCts = new CancellationTokenSource();
+            var ct = _rabbiLoadingCts.Token;
+
+            RabbiLoadingBar.Visibility = Visibility.Visible;
+            _topicViewModels.Clear();
+            TopicsListBox.ItemsSource = _topicViewModels;
+            StatusText.Text = "טוען נושאים...";
+
+            await foreach (var page in _downloaderService.GetTopicsStreamAsync(ct))
+            {
+                foreach (var topic in page)
+                    _topicViewModels.Add(topic);
+                StatusText.Text = $"נטענו {_topicViewModels.Count} נושאים...";
+            }
+
+            StatusText.Text = $"נטענו {_topicViewModels.Count} נושאים";
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception ex)
+        {
+            StatusText.Text = $"שגיאה: {ex.Message}";
+        }
+        finally
+        {
+            RabbiLoadingBar.Visibility = Visibility.Collapsed;
+        }
+    }
+
+    private async void TopicsListBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (TopicsListBox.SelectedItem is not Topic topic) return;
+        _selectedTopic = topic;
+
+        try
+        {
+            _loadingCts?.Cancel();
+            _loadingCts = new CancellationTokenSource();
+            var ct = _loadingCts.Token;
+
+            LessonsLoadingBar.Visibility = Visibility.Visible;
+            StatusText.Text = $"טוען שיעורים עבור נושא: {topic.Name}...";
+            LessonsGrid.ItemsSource = null;
+            _currentLessons = null;
+            UpdateDownloadButtonStates();
+
+            var lessons = await _downloaderService.GetAllLessonsByTopicAsync(topic.Id, ct);
+
+            _currentLessons = lessons
+                .Select((lesson, index) => new LessonViewModel(lesson, index + 1))
+                .ToList();
+
+            var topicPath = Path.Combine(_downloadPath, "נושאים", SanitizeFileName(topic.Name));
+            foreach (var lessonVm in _currentLessons)
+                lessonVm.CheckIfAlreadyDownloaded(topicPath);
+
+            ApplyRabbiFilter();
+            StatusText.Text = $"נטענו {_currentLessons.Count} שיעורים עבור נושא: {topic.Name}";
+            UpdateDownloadButtonStates();
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception ex)
+        {
+            StatusText.Text = $"שגיאה: {ex.Message}";
+        }
+        finally
+        {
+            LessonsLoadingBar.Visibility = Visibility.Collapsed;
+        }
+    }
+
+    private async void DownloadTopicButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (_selectedTopic == null)
+        {
+            MessageBox.Show("אנא בחר נושא להורדה.", "בחירה חסרה", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+
+        if (_isDownloading)
+        {
+            MessageBox.Show("הורדה כבר מתבצעת. אנא המתן או בטל את ההורדה הנוכחית.", "הורדה פעילה",
+                MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+
+        var topic = _selectedTopic;
+
+        try
+        {
+            SetDownloadingState(true);
+            StatusText.Text = $"טוען שיעורים עבור נושא: {topic.Name}...";
+
+            if (_currentLessons == null || _currentLessons.Count == 0)
+            {
+                _loadingCts?.Cancel();
+                _loadingCts = new CancellationTokenSource();
+
+                var lessons = await _downloaderService.GetAllLessonsByTopicAsync(topic.Id, _loadingCts.Token);
+
+                _currentLessons = lessons
+                    .Select((lesson, index) => new LessonViewModel(lesson, index + 1))
+                    .ToList();
+
+                ApplyRabbiFilter();
+            }
+
+            // Use filtered list (respects rabbi chip selection + renumbering)
+            var toDownload = _filteredLessons ?? _currentLessons;
+
+            if (toDownload == null || toDownload.Count == 0)
+            {
+                StatusText.Text = "לא נמצאו שיעורים בנושא זה";
+                return;
+            }
+
+            var topicDownloadPath = Path.Combine(_downloadPath, "נושאים", SanitizeFileName(topic.Name));
+
+            StatusText.Text = $"מוריד {toDownload.Count} שיעורים מנושא: {topic.Name}";
+            OverallProgressBar.Value = 0;
+            OverallProgressText.Text = "";
+
+            await _downloadManager.DownloadAllAsync(toDownload, topicDownloadPath,
+                flatMode: true, albumOverride: topic.Name);
+
+            var completed = toDownload.Count(l => l.Status == DownloadStatus.Completed);
+            var skipped = toDownload.Count(l => l.Status == DownloadStatus.Skipped);
+            var errors = toDownload.Count(l => l.Status == DownloadStatus.Error);
+
+            StatusText.Text = $"הורדה הושלמה: {completed} הורדו, {skipped} כבר קיימים, {errors} שגיאות";
+        }
+        catch (OperationCanceledException)
+        {
+            StatusText.Text = "ההורדה בוטלה";
+            OverallProgressBar.Value = 0;
+        }
+        catch (Exception ex)
+        {
+            StatusText.Text = $"שגיאה בהורדה: {ex.Message}";
+            OverallProgressBar.Value = 0;
+            MessageBox.Show($"שגיאה בהורדה: {ex.Message}", "שגיאה", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+        finally
+        {
+            SetDownloadingState(false);
+        }
+    }
+
     private async Task LoadRabbiImagesAsync(CancellationToken ct)
     {
         var semaphore = new SemaphoreSlim(3);
@@ -193,7 +565,19 @@ public partial class MainWindow : Window
                     StatusText.Text = $"סורק שיעורים עבור {rabbi.Name}... נמצאו {_seriesList.Count} סדרות";
                 }
 
-                StatusText.Text = $"נטענו {_seriesList.Count} סדרות עבור {rabbi.Name}";
+                if (_seriesList.Count == 0)
+                {
+                    // Rabbi has no series — remove from list so it won't appear again
+                    var vmToRemove = _rabbiViewModels.FirstOrDefault(r => r.Id == rabbi.Id);
+                    if (vmToRemove != null)
+                        _rabbiViewModels.Remove(vmToRemove);
+                    RabbiListBox.SelectedItem = null;
+                    StatusText.Text = $"לרב {rabbi.Name} אין סדרות — הוסר מהרשימה";
+                }
+                else
+                {
+                    StatusText.Text = $"נטענו {_seriesList.Count} סדרות עבור {rabbi.Name}";
+                }
             }
             catch (OperationCanceledException)
             {
@@ -293,12 +677,19 @@ public partial class MainWindow : Window
         _imageLoadingCts?.Cancel();
         _rabbiViewModels.Clear();
         _seriesList.Clear();
+        _topicViewModels.Clear();
+        _selectedTopic = null;
         RabbiListBox.ItemsSource = null;
         SeriesListBox.ItemsSource = null;
+        TopicsListBox.ItemsSource = null;
         LessonsGrid.ItemsSource = null;
         _currentLessons = null;
         UpdateDownloadButtonStates();
-        LoadRabbis();
+
+        if (_isTopicMode)
+            LoadTopics();
+        else
+            LoadRabbis();
     }
 
     private async void DownloadButton_Click(object sender, RoutedEventArgs e)
@@ -316,9 +707,23 @@ public partial class MainWindow : Window
             {
                 SetDownloadingState(true);
 
-                // Download just this single lesson using the download manager
+                string downloadPath;
+                bool flatMode = false;
+                string? albumOverride = null;
+
+                if (_isTopicMode && _selectedTopic != null)
+                {
+                    downloadPath = Path.Combine(_downloadPath, "נושאים", SanitizeFileName(_selectedTopic.Name));
+                    flatMode = true;
+                    albumOverride = _selectedTopic.Name;
+                }
+                else
+                {
+                    downloadPath = _downloadPath;
+                }
+
                 var singleList = new List<LessonViewModel> { lessonVm };
-                await _downloadManager.DownloadAllAsync(singleList, _downloadPath);
+                await _downloadManager.DownloadAllAsync(singleList, downloadPath, flatMode, albumOverride);
 
                 StatusText.Text = lessonVm.Status == DownloadStatus.Completed
                     ? $"הורדה הושלמה: {lessonVm.Title}"
@@ -464,13 +869,32 @@ public partial class MainWindow : Window
         else
         {
             DownloadSeriesButton.IsEnabled = false;
+            DownloadTopicButton.IsEnabled = false;
         }
     }
 
     private void UpdateDownloadButtonStates()
     {
-        bool hasSeriesSelected = SeriesListBox.SelectedItem is Series && RabbiListBox.SelectedItem is RabbiViewModel;
+        if (_isTopicMode)
+        {
+            DownloadTopicButton.IsEnabled = _selectedTopic != null && !_isDownloading;
 
+            if (_selectedTopic != null)
+            {
+                var topicDir = Path.Combine(_downloadPath, "נושאים", SanitizeFileName(_selectedTopic.Name));
+                var dirExists = Directory.Exists(topicDir);
+                OpenDirectoryButton.Visibility = Visibility.Visible;
+                OpenDirectoryButton.IsEnabled = dirExists;
+                OpenDirectoryButton.ToolTip = dirExists ? "פתח את תיקיית ההורדה" : "התיקייה עדיין לא קיימת";
+            }
+            else
+            {
+                OpenDirectoryButton.Visibility = Visibility.Collapsed;
+            }
+            return;
+        }
+
+        bool hasSeriesSelected = SeriesListBox.SelectedItem is Series && RabbiListBox.SelectedItem is RabbiViewModel;
         DownloadSeriesButton.IsEnabled = hasSeriesSelected && !_isDownloading;
 
         // Show "Open Directory" button when a series is selected
@@ -683,49 +1107,45 @@ public partial class MainWindow : Window
     {
         try
         {
-            var selectedRabbi = RabbiListBox.SelectedItem as RabbiViewModel;
-            var selectedSeries = SeriesListBox.SelectedItem as Series;
+            string? targetDir = null;
 
-            if (selectedRabbi == null || selectedSeries == null) return;
-
-            var seriesDir = Path.Combine(
-                _downloadPath,
-                SanitizeFileName(selectedRabbi.Rabbi.Name),
-                SanitizeFileName(selectedSeries.Name)
-            );
-
-            if (Directory.Exists(seriesDir))
+            if (_isTopicMode && _selectedTopic != null)
             {
-                Process.Start(new ProcessStartInfo
-                {
-                    FileName = seriesDir,
-                    UseShellExecute = true
-                });
+                targetDir = Path.Combine(_downloadPath, "נושאים", SanitizeFileName(_selectedTopic.Name));
+                if (!Directory.Exists(targetDir))
+                    targetDir = Path.Combine(_downloadPath, "נושאים");
+                if (!Directory.Exists(targetDir))
+                    targetDir = _downloadPath;
             }
             else
             {
-                // Try opening the rabbi directory if series dir doesn't exist
-                var rabbiDir = Path.Combine(_downloadPath, SanitizeFileName(selectedRabbi.Rabbi.Name));
-                if (Directory.Exists(rabbiDir))
-                {
-                    Process.Start(new ProcessStartInfo
-                    {
-                        FileName = rabbiDir,
-                        UseShellExecute = true
-                    });
-                }
+                var selectedRabbi = RabbiListBox.SelectedItem as RabbiViewModel;
+                var selectedSeries = SeriesListBox.SelectedItem as Series;
+
+                if (selectedRabbi == null || selectedSeries == null) return;
+
+                var seriesDir = Path.Combine(
+                    _downloadPath,
+                    SanitizeFileName(selectedRabbi.Rabbi.Name),
+                    SanitizeFileName(selectedSeries.Name)
+                );
+
+                if (Directory.Exists(seriesDir))
+                    targetDir = seriesDir;
                 else
                 {
-                    // Open the base download path
-                    if (Directory.Exists(_downloadPath))
-                    {
-                        Process.Start(new ProcessStartInfo
-                        {
-                            FileName = _downloadPath,
-                            UseShellExecute = true
-                        });
-                    }
+                    var rabbiDir = Path.Combine(_downloadPath, SanitizeFileName(selectedRabbi.Rabbi.Name));
+                    targetDir = Directory.Exists(rabbiDir) ? rabbiDir : _downloadPath;
                 }
+            }
+
+            if (targetDir != null && Directory.Exists(targetDir))
+            {
+                Process.Start(new ProcessStartInfo
+                {
+                    FileName = targetDir,
+                    UseShellExecute = true
+                });
             }
         }
         catch (Exception ex)

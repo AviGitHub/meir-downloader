@@ -25,7 +25,8 @@ public class DownloadManager
         _semaphore = new SemaphoreSlim(maxConcurrent, maxConcurrent);
     }
 
-    public async Task DownloadAllAsync(IList<LessonViewModel> lessons, string downloadPath)
+    public async Task DownloadAllAsync(IList<LessonViewModel> lessons, string downloadPath,
+        bool flatMode = false, string? albumOverride = null)
     {
         _cts = new CancellationTokenSource();
         var ct = _cts.Token;
@@ -46,7 +47,7 @@ public class DownloadManager
         // Download remaining in parallel
         var downloadTasks = lessons
             .Where(l => l.Status != DownloadStatus.Skipped)
-            .Select(lesson => DownloadSingleAsync(lesson, downloadPath, ct, () =>
+            .Select(lesson => DownloadSingleAsync(lesson, downloadPath, ct, flatMode, albumOverride, () =>
             {
                 Interlocked.Increment(ref completed);
                 OverallProgressChanged?.Invoke(completed, total);
@@ -80,7 +81,8 @@ public class DownloadManager
         catch { }
     }
 
-    private async Task DownloadSingleAsync(LessonViewModel lessonVm, string downloadPath, CancellationToken ct, Action onComplete)
+    private async Task DownloadSingleAsync(LessonViewModel lessonVm, string downloadPath, CancellationToken ct,
+        bool flatMode, string? albumOverride, Action onComplete)
     {
         await _semaphore.WaitAsync(ct);
         string? filePath = null;
@@ -106,13 +108,35 @@ public class DownloadManager
 
             lessonVm.StatusText = "מוריד...";
 
-            // Create directory structure
-            var rabbiDir = Path.Combine(downloadPath, SanitizeFileName(lessonVm.RabbiName));
-            var seriesDir = Path.Combine(rabbiDir, SanitizeFileName(lessonVm.SeriesName));
-            Directory.CreateDirectory(seriesDir);
+            // Create directory structure.
+            // flatMode: files go directly into downloadPath (topic mode).
+            // Otherwise use the standard {rabbi}/{series}/ hierarchy.
+            string targetDir;
+            if (flatMode)
+            {
+                targetDir = downloadPath;
+            }
+            else
+            {
+                var rabbiName = lessonVm.RabbiName;
+                var seriesName = lessonVm.SeriesName;
+                bool hasRabbi = !string.IsNullOrWhiteSpace(rabbiName) && rabbiName != "Unknown";
+                bool hasSeries = !string.IsNullOrWhiteSpace(seriesName) && seriesName != "Unknown";
+
+                if (hasRabbi && hasSeries)
+                    targetDir = Path.Combine(downloadPath, SanitizeFileName(rabbiName), SanitizeFileName(seriesName));
+                else if (hasRabbi)
+                    targetDir = Path.Combine(downloadPath, SanitizeFileName(rabbiName));
+                else if (hasSeries)
+                    targetDir = Path.Combine(downloadPath, SanitizeFileName(seriesName));
+                else
+                    targetDir = downloadPath;
+            }
+
+            Directory.CreateDirectory(targetDir);
 
             var fileName = $"{lessonVm.LessonNumber:D3}-{SanitizeFileName(lessonVm.Title)}.mp3";
-            filePath = Path.Combine(seriesDir, fileName);
+            filePath = Path.Combine(targetDir, fileName);
 
             Log($"Starting download for '{lessonVm.Title}' to {filePath}");
 
@@ -156,12 +180,14 @@ public class DownloadManager
             // Write ID3 tags (file must be closed first)
             try
             {
-                Log($"Writing ID3 tags for '{lessonVm.Title}': Artist='{lessonVm.RabbiName}', Album='{lessonVm.SeriesName}', Track={lessonVm.LessonNumber}");
+                var album = albumOverride ?? lessonVm.SeriesName;
+                var artist = lessonVm.RabbiName;
+                Log($"Writing ID3 tags for '{lessonVm.Title}': Artist='{artist}', Album='{album}', Track={lessonVm.LessonNumber}");
                 using (var tagFile = TagLib.File.Create(filePath))
                 {
                     tagFile.Tag.Title = lessonVm.Title;
-                    tagFile.Tag.Performers = new[] { lessonVm.RabbiName };
-                    tagFile.Tag.Album = lessonVm.SeriesName;
+                    tagFile.Tag.Performers = string.IsNullOrWhiteSpace(artist) ? Array.Empty<string>() : new[] { artist };
+                    tagFile.Tag.Album = album;
                     tagFile.Tag.Track = (uint)lessonVm.LessonNumber;
                     tagFile.Save();
                 }
