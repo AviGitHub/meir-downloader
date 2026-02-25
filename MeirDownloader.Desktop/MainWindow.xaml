@@ -228,7 +228,7 @@
                 <TextBlock x:Name="OverallProgressText" Grid.Column="1" Text="" VerticalAlignment="Bottom" Foreground="{DynamicResource TextPrimaryBrush}" Margin="10,0,0,0"/>
                 
                 <TextBlock x:Name="VersionText" Grid.Column="2"
-                           Text="v1.1.0"
+                           Text="v1.2.0"
                            FontSize="10"
                            Opacity="0.4"
                            Foreground="{DynamicResource MutedTextBrush}"

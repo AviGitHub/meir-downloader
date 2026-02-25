@@ -3,7 +3,7 @@
 # Prerequisites: GitHub CLI (gh) must be installed and authenticated
 
 param(
-    [string]$Version = "1.0.0",
+    [string]$Version = "1.2.0",
     [string]$MsiPath = "MeirDownloader.Installer/bin/Release/MeirDownloader.Installer.msi"
 )
 
@@ -63,6 +63,9 @@ $releaseNotes = @"
 - Israeli date format (dd.MM.yyyy)
 - Incremental loading with progress indicators
 - Self-contained installer (no .NET runtime required)
+
+## What's New
+- Minor bug fixes and performance improvements
 
 ## Installation
 1. Download ``MeirDownloader.Installer.msi`` below
